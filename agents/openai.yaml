@@ -1,0 +1,4 @@
+interface:
+  display_name: "PRD AC Execution Guide"
+  short_description: "Create executable PRDs with acceptance criteria gates."
+  default_prompt: "Create a PRD-style execution guide with numbered acceptance criteria and phase gates."
