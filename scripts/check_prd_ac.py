@@ -38,6 +38,16 @@ RECOMMENDED_PHRASES = [
     "可恢复入口",
     "Task",
     "Implements AC",
+    "Execution Attitude",
+    "不得猜测接口",
+    "不得臆想业务",
+    "Human confirmation",
+    "Reuse existing interfaces",
+    "Validation evidence",
+    "scope expansion",
+    "High-risk confirmation",
+    "honest blocking",
+    "cautious refactor",
 ]
 
 AC_CATEGORIES = [

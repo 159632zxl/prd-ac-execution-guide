@@ -44,6 +44,9 @@ Supersedes:
 > PRD + AC 是实现真源。实现、测试、报告必须回连 AC 编号。  
 > 未批准 PRD 不得进入实现。重大范围变更必须先修订 PRD。
 > AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心设计决策。
+> 不得猜测接口、不得臆想业务；不清楚时先查询、确认或标记阻塞。
+> 优先复用现有接口、文件、工具和模式；新接口或 scope expansion 必须先获 Human confirmation。
+> 高风险操作必须设置 High-risk confirmation gate，不得为了推进而绕过。
 >
 > **执行规范：**
 > 1. 开始某阶段前，先完整读取对应 `12.x` 小节
@@ -53,6 +56,7 @@ Supersedes:
 > 5. 任一 `FAIL` 必须在当前阶段修复，不得进入下一阶段
 > 6. `G-*` 全局禁止项每个阶段都必须检查
 > 7. 每阶段报告必须写入指定 reports 目录
+> 8. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
 
 ---
 
@@ -71,7 +75,26 @@ Supersedes:
 批准人:
 验收命令:
 禁止项:
+既有接口 / 复用目标:
+高风险操作:
+scope 边界:
+回滚或恢复点:
 ```
+
+---
+
+## 0.0 Execution Attitude
+
+| 原则 | PRD 约束 |
+|------|----------|
+| 认真查询 | 不得猜测接口、路径、schema、命令；不清楚则列入 Blocking ambiguities |
+| 寻求确认 | 模糊需求、业务规则、验收口径必须 Human confirmation |
+| 人类确认 | 高风险操作、scope expansion、新接口必须先获批准 |
+| 复用现有 | 新建接口/文件/抽象前必须查找并优先复用现有模式 |
+| 主动测试 | 每个完成项必须有 Validation evidence |
+| 遵循规范 | 不破坏架构宪法、事实真源和 AC gate |
+| 诚实无知 | 信息不足时标记 not-ready，不得假装理解 |
+| 谨慎重构 | 只做 AC 要求的 cautious refactor：窄范围、可验证、可回退 |
 
 ---
 
@@ -84,6 +107,9 @@ Known files / directories:
 Expected outputs:
 Validation commands:
 Blocking ambiguities:
+Human confirmation:
+High-risk confirmation:
+Validation evidence:
 ```
 
 | Item | Requirement | Status |
@@ -94,6 +120,8 @@ Blocking ambiguities:
 | Boundaries | Owned and external systems named | PASS/FAIL |
 | Files | Known files/directories listed or discovery step required | PASS/FAIL |
 | Contracts | Inputs/outputs/writes/forbidden actions specified | PASS/FAIL |
+| Existing reuse targets | Existing interfaces/files/helpers/patterns named or discovery step required | PASS/FAIL |
+| Confirmation gates | High-risk confirmation and business approval boundaries named | PASS/FAIL |
 | Tasks | Each task maps to AC IDs | PASS/FAIL |
 | Tests | Validation commands or observable checks exist | PASS/FAIL |
 | Expected result | Final artifact or state is named | PASS/FAIL |
@@ -183,17 +211,21 @@ Default: batch
 Truth source:
 Derived indexes:
 Ownership boundaries:
+Existing interfaces / reuse targets:
 Data integrity rules:
 Security / safety rules:
 Forbidden shortcuts:
 Migration constraints:
+Refactor limits:
 ```
 
 ### 2.4 Boundary Policy
 
 | Always | Ask First | Never |
 |--------|-----------|-------|
-| ... | ... | ... |
+| Run validation commands | Change truth-source schema | Delete historical data |
+| Reuse existing interfaces | Add external dependencies | Bypass AC gates |
+| Record Validation evidence | scope expansion / high-risk operation | Guess interfaces or invent business rules |
 
 ---
 
@@ -280,6 +312,7 @@ WHERE <场景/配置>, THE SYSTEM SHALL <特定行为>.
 接口变更:
 执行命令:
 命令结果:
+Validation evidence:
 AC 自检:
   AC编号 | PASS/FAIL/WARN | 说明
 未通过项:
@@ -305,6 +338,10 @@ handoff:
 | AC | 禁止项 | 等级 |
 |----|--------|------|
 | G-01 | 禁止 ... | FAIL |
+| G-02 | 禁止未查询即猜测接口、路径、schema 或命令 | FAIL |
+| G-03 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
+| G-04 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
+| G-05 | 禁止无 Validation evidence 宣称完成 | FAIL |
 
 ### 12.1 P0 验收
 

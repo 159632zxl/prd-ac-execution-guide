@@ -21,6 +21,33 @@ If implementation conflicts with PRD/AC, revise the PRD or get approval before c
 
 Do not let an implementation plan drift into its own authority. The PRD owns scope; AC owns acceptance.
 
+## Execution Attitude
+
+PRDs produced by this skill must encode disciplined execution as checkable rules, not slogans. The core attitude is:
+
+```text
+以认真查询为荣，以瞎猜接口为耻
+以寻求确认为荣，以模糊执行为耻
+以人类确认为荣，以臆想业务为耻
+以复用现有为荣，以创造接口为耻
+以主动测试为荣，以跳过验证为耻
+以遵循规范为荣，以破坏架构为耻
+以诚实无知为荣，以假装理解为耻
+以谨慎重构为荣，以盲目修改为耻
+```
+
+Translate that attitude into PRD requirements:
+
+| Attitude | PRD requirement |
+|---|---|
+| Query before guessing | If interfaces, file locations, data contracts, truth sources, or validation commands are unclear, the PRD must require lookup or mark `Blocking ambiguities`; use `不得猜测接口`. |
+| Confirm before acting | Any unclear business rule, approval boundary, high-risk operation, or scope expansion must require `Human confirmation`; use `不得臆想业务` and `High-risk confirmation`. |
+| Reuse before creating | Require discovery of existing files, APIs, helpers, schemas, and patterns before proposing new ones; state `Reuse existing interfaces` unless a new interface is explicitly approved. |
+| Validate before claiming | Every task needs `Validation evidence`: exact command, observable check, artifact, or documented gap. No unverified "done" claims. |
+| Stay inside scope | User-selected object, file, feature, or deliverable defines the working scope. New task discovery, adjacent cleanup, or scope expansion needs approval. |
+| Be honest when blocked | If information is insufficient, set `AI Readiness: not-ready`, add Open Questions, and use honest blocking instead of pretending the spec is implementable. |
+| Refactor cautiously | Refactor only when required by the request or AC. Use cautious refactor rules: named target, narrow files, reversible change, validation evidence. |
+
 ## Clarify Before Writing
 
 If any of these are unclear, ask concise questions or create an "Open Questions" section before writing the final PRD:
@@ -36,7 +63,13 @@ approval owner
 validation commands
 data integrity rules
 forbidden actions
+existing interfaces / reuse targets
+high-risk operations
+scope boundary
+rollback or recovery point
 ```
+
+Do not fill unclear items by guessing. A PRD with guessed interfaces, imagined business rules, or missing validation is `not-ready`.
 
 ## AI Readiness Gate
 
@@ -53,6 +86,8 @@ Blocking ambiguities:
 
 The PRD is `not-ready` if the agent must invent architecture, choose a truth source, guess file locations, define tests, infer data contracts, or decide safety boundaries.
 
+The PRD is also `not-ready` if the agent must guess an interface, invent business behavior, create a new API without approval, expand scope, or perform high-risk work without Human confirmation.
+
 Minimum AI-ready checklist:
 
 | Item | Requirement |
@@ -63,6 +98,8 @@ Minimum AI-ready checklist:
 | Boundaries | Owned systems and external systems named |
 | Files | Known files/directories listed or discovery step required |
 | Contracts | Inputs/outputs/writes/forbidden actions specified |
+| Existing reuse targets | Existing interfaces/files/helpers/patterns named or discovery step required |
+| Confirmation gates | High-risk confirmation and business approval boundaries named |
 | Tasks | Each task maps to AC IDs |
 | Tests | Validation commands or observable checks exist |
 | Expected result | Final artifact or state is named |
@@ -77,10 +114,12 @@ Architecture Constitution:
 - Truth source:
 - Derived indexes:
 - Ownership boundaries:
+- Existing interfaces / reuse targets:
 - Data integrity rules:
 - Security / safety rules:
 - Forbidden shortcuts:
 - Migration constraints:
+- Refactor limits:
 ```
 
 Rules in the constitution should become global `G-*` forbidden items or `data-integrity` AC rows.
@@ -128,7 +167,8 @@ Add an Always / Ask First / Never table for agent autonomy:
 | Always | Ask First | Never |
 |--------|-----------|-------|
 | Run validation commands | Change truth-source schema | Delete historical data |
-| Update stage reports | Add external dependencies | Bypass AC gates |
+| Reuse existing interfaces | Add external dependencies | Bypass AC gates |
+| Record validation evidence | scope expansion / high-risk operation | Guess interfaces or invent business rules |
 ```
 
 Use this when forbidden items alone are too coarse. `Never` items should also appear as `G-*` AC rows.
@@ -163,6 +203,7 @@ The exact section count may change, but keep these roles:
 | AI executor statement | Tell agents what must be read and what blocks progress |
 | Spec authority | State that PRD/AC are the implementation truth source |
 | AI readiness | State whether implementation can start without new design decisions |
+| Execution attitude | Require query-first, confirmation-first, reuse-first, validation-first behavior |
 | Architecture constitution | Record non-negotiable architecture rules |
 | Workflow and maintenance mode | State requirements-first/design-first and spec lifecycle |
 | Boundary policy | Define Always / Ask First / Never autonomy |
@@ -266,6 +307,9 @@ Include this near the top:
 PRD + AC 是实现真源。实现、测试、报告必须回连 AC 编号。
 未批准 PRD 不得进入实现。重大范围变更必须先修订 PRD。
 AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心设计决策。
+不得猜测接口、不得臆想业务；不清楚时先查询、确认或标记阻塞。
+优先复用现有接口、文件、工具和模式；新接口或 scope expansion 必须先获 Human confirmation。
+高风险操作必须设置 High-risk confirmation gate，不得为了推进而绕过。
 
 执行规范：
 1. 开始某阶段前，先完整读取对应 12.x 小节
@@ -275,6 +319,7 @@ AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心
 5. 任一 FAIL 必须在当前阶段修复，不得进入下一阶段
 6. 全局禁止项每个阶段都必须检查
 7. 每阶段报告必须写入指定 reports 目录
+8. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
 ```
 
 ## Approval Gate
@@ -349,6 +394,10 @@ Examples:
 | G-02 | 禁止无证据更新长期状态 | FAIL |
 | G-03 | 禁止先做增强层再补核心闭环 | FAIL |
 | G-04 | 禁止覆盖用户已有文件且无说明 | FAIL |
+| G-05 | 禁止未查询即猜测接口、路径、schema 或命令 | FAIL |
+| G-06 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
+| G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
+| G-08 | 禁止无 Validation evidence 宣称完成 | FAIL |
 ```
 
 ## Interface Contracts
@@ -422,6 +471,8 @@ handoff:
 - State non-goals explicitly
 - Say which chapter is authoritative
 - If external tools are optional, label them enhancement, not blocker
+- Prefer query, confirmation, reuse, and validation over guessing, inventing, broadening, or asserting
+- Keep changes minimal: no speculative design, no adjacent cleanup, no cautious refactor without named purpose and validation
 
 ## Common Mistakes
 
@@ -435,6 +486,11 @@ handoff:
 | Enhancement blocks core | Mark enhancement as placeholder or later milestone |
 | No approval state | Add `Spec status` and `Implementation allowed` |
 | No AI readiness gate | Add readiness status and "No new design decisions required" |
+| Guessed interfaces or file paths | Add lookup/discovery tasks or mark `AI Readiness: not-ready` |
+| Imagined business behavior | Add Human confirmation requirement or Open Questions |
+| Creates a new interface without checking existing ones | Add `Reuse existing interfaces` discovery and approval gate |
+| Completion claim without evidence | Require `Validation evidence` in task, AC, and report |
+| Broad cleanup hidden inside implementation | Add scope boundary and cautious refactor rules |
 | No architecture constitution | Add truth source, ownership, integrity, forbidden shortcuts |
 | No workflow variant | Declare requirements-first or design-first |
 | No spec maintenance mode | Declare spec-first, spec-anchored, or spec-as-source |
