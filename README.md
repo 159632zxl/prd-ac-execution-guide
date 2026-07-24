@@ -4,6 +4,8 @@
 
 Turn vague "make it work" briefs into documents where **completion is decided by explicit gates, not by "looks reasonable."**
 
+> **How this was built** — Synthesized by having Codex survey prior art across GitHub (implementation-guide / spec-driven / agent-handoff patterns), then filtered and hardened against real hands-on usage. Not theory: the forbidden items and common-mistakes tables come from patterns that actually broke.
+
 ---
 
 ## The Problem
