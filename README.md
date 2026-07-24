@@ -59,6 +59,30 @@ git clone https://github.com/159632zxl/prd-ac-execution-guide ~/.claude/skills/p
 
 Open a new Claude Code session — it auto-loads. The skill triggers when you're **creating or rewriting PRDs, implementation guides, refactor guides, handoff specs, or agent-executable plans**. You can also invoke it directly with `/prd-ac-execution-guide`.
 
+### As a Codex skill
+
+Clone into your personal Codex skills directory.
+
+On macOS or Linux:
+
+```bash
+mkdir -p ~/.agents/skills
+git clone https://github.com/159632zxl/prd-ac-execution-guide ~/.agents/skills/prd-ac-execution-guide
+```
+
+On Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.agents\skills" | Out-Null
+git clone https://github.com/159632zxl/prd-ac-execution-guide "$HOME\.agents\skills\prd-ac-execution-guide"
+```
+
+Codex detects newly installed skills automatically. If the skill does not
+appear, restart Codex. It can trigger automatically for matching PRD and
+execution-guide tasks; in the Codex CLI or IDE extension, run `/skills` to
+browse installed skills or type `$prd-ac-execution-guide` to invoke it
+explicitly.
+
 ### Standalone
 
 1. Copy `references/prd_template.md` as the starting point for a new PRD.
