@@ -1,5 +1,7 @@
 # PRD AC Execution Guide Template
 
+<!-- L-tier full template. Trim sections for S/M documents according to Document Tiers in SKILL.md. -->
+
 # PRD · <Title>
 
 **<Codename> v1.0 · <YYYY-MM-DD> · 供 Codex / Claude 执行**
@@ -9,6 +11,7 @@
 
 ```text
 Spec status: draft
+Document Tier: L
 Approved by:
 Approval date:
 Implementation allowed: no
@@ -34,29 +37,24 @@ Supersedes:
 9. [M5 端到端验收](#9-m5-端到端验收)
 10. [增强层接入顺序](#10-增强层接入顺序)
 11. [附录](#11-附录)
-12. [验收标准总览（Acceptance Criteria）](#12-验收标准总览acceptance-criteria) ← **AI 执行器必读，唯一验收依据**
+- [验收标准总览（Acceptance Criteria）](#验收标准总览acceptance-criteria) ← **AI 执行器必读，唯一验收依据**
 
 ---
 
 > **AI 执行器强制阅读声明**
 >
-> 第 12 章为唯一验收依据。实现说明不替代验收标准。  
+> 最后一章的验收标准总览是唯一验收依据。实现说明不替代验收标准。
 > PRD + AC 是实现真源。实现、测试、报告必须回连 AC 编号。  
 > 未批准 PRD 不得进入实现。重大范围变更必须先修订 PRD。
 > AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心设计决策。
-> 不得猜测接口、不得臆想业务；不清楚时先查询、确认或标记阻塞。
-> 优先复用现有接口、文件、工具和模式；新接口或 scope expansion 必须先获 Human confirmation。
-> 高风险操作必须设置 High-risk confirmation gate，不得为了推进而绕过。
+> `G-*` 是全局禁止项的权威引用；不清楚时先查询、确认或标记阻塞，不得为了推进而绕过。
 >
 > **执行规范：**
-> 1. 开始某阶段前，先完整读取对应 `12.x` 小节
+> 1. 开始某阶段前，先完整读取验收标准总览中对应的 `§AC.*` 小节
 > 2. 实现前先输出本阶段计划、改动范围、依赖、验收命令
-> 3. 实现完成后，按 AC 编号逐条自检
-> 4. 自检输出格式固定为：`AC编号 | PASS/FAIL/WARN | 说明`
-> 5. 任一 `FAIL` 必须在当前阶段修复，不得进入下一阶段
-> 6. `G-*` 全局禁止项每个阶段都必须检查
-> 7. 每阶段报告必须写入指定 reports 目录
-> 8. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
+> 3. 实现完成后逐条自检，格式为：`AC编号 | PASS/FAIL/WARN | 说明`
+> 4. 任一 `FAIL` 必须在当前阶段修复，每阶段都检查 `G-*`
+> 5. 报告写入指定 reports 目录；PASS 给出 Validation evidence，未知项 honest blocking
 
 ---
 
@@ -227,6 +225,8 @@ Refactor limits:
 | Reuse existing interfaces | Add external dependencies | Bypass AC gates |
 | Record Validation evidence | scope expansion / high-risk operation | Guess interfaces or invent business rules |
 
+`Never` 项同时登记为 `G-*` AC 行（见全局禁止项）。
+
 ---
 
 ## 3 目标目录结构与接口
@@ -259,7 +259,7 @@ validation:
 
 ## 4 P0 现状复核
 
-> 禁止项见 §12.1。验收标准见 §12.1。
+> 禁止项见验收标准总览 `§AC.0`；本阶段验收见 `§AC.P0`。
 
 ### 4.1 目标
 
@@ -275,7 +275,7 @@ validation:
 
 ## 5 M1 基础层
 
-> 禁止项见 §12.2。验收标准见 §12.2。
+> 禁止项见验收标准总览 `§AC.0`；本阶段验收见 `§AC.M1`。
 
 ...
 
@@ -329,11 +329,25 @@ handoff:
 下一阶段输入:
 ```
 
+### 11.4 Handoff and Recovery
+
+```text
+当前阶段:
+Spec status:
+已通过 AC:
+未通过 AC:
+当前阻塞:
+下一步命令:
+可恢复入口:
+不得重复执行:
+相关报告:
+```
+
 ---
 
-## 12 验收标准总览（Acceptance Criteria）
+## 验收标准总览（Acceptance Criteria）
 
-### 12.0 全局禁止项
+### §AC.0 全局禁止项
 
 | AC | 禁止项 | 等级 |
 |----|--------|------|
@@ -343,14 +357,14 @@ handoff:
 | G-04 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
 | G-05 | 禁止无 Validation evidence 宣称完成 | FAIL |
 
-### 12.1 P0 验收
+### §AC.P0 P0 验收
 
 | AC | 类别 | 验收项 | 验证方法 | 等级 |
 |----|------|--------|----------|------|
 | P0-01 | happy | ... | ... | FAIL |
 | P0-DONE | happy | ... | ... | FAIL |
 
-### 12.2 M1 验收
+### §AC.M1 M1 验收
 
 | AC | 类别 | 验收项 | 验证方法 | 等级 |
 |----|------|--------|----------|------|
@@ -361,7 +375,7 @@ handoff:
 | M1-DI-01 | data-integrity | ... | ... | FAIL |
 | M1-SAFE-01 | safety | ... | ... | FAIL |
 
-### 12.x 最终验收命令
+### 最终验收命令
 
 ```bash
 ...

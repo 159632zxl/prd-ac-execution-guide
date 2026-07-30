@@ -250,6 +250,19 @@ class CheckerTests(unittest.TestCase):
         self.assertIn("Boundary Policy", result.stdout)
         self.assertIn("stage report", result.stdout)
 
+    def test_repository_m_example_passes_without_warnings(self) -> None:
+        example = REPO_ROOT / "references" / "example_prd_filled.md"
+        result = subprocess.run(
+            [sys.executable, str(CHECKER), str(example)],
+            capture_output=True,
+            check=False,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("PASS", result.stdout.strip())
+
 
 if __name__ == "__main__":
     unittest.main()

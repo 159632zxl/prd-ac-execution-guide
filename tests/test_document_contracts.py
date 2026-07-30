@@ -7,6 +7,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL = REPO_ROOT / "SKILL.md"
+TEMPLATE = REPO_ROOT / "references" / "prd_template.md"
+EXAMPLE = REPO_ROOT / "references" / "example_prd_filled.md"
 
 
 def section(text: str, heading: str) -> str:
@@ -91,6 +93,61 @@ class SkillDocumentContractTests(unittest.TestCase):
 
     def test_skill_is_compact_enough_to_scan(self) -> None:
         self.assertLessEqual(len(self.text.splitlines()), 340)
+
+
+class ReferenceDocumentContractTests(unittest.TestCase):
+    def test_template_is_l_tier_and_uses_stable_ac_references(self) -> None:
+        text = TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn("L-tier full template", text)
+        self.assertIn("Document Tier: L", text)
+        self.assertNotRegex(text, r"第\s*12\s*章|§12(?:\.|\b)")
+        for reference in ("§AC.0", "§AC.P0", "§AC.M1"):
+            with self.subTest(reference=reference):
+                self.assertIn(reference, text)
+
+        level_two_headings = re.findall(r"(?m)^##(?!#)\s+(.+?)\s*$", text)
+        self.assertIn("Acceptance Criteria", level_two_headings[-1])
+
+    def test_filled_example_covers_m_tier_execution_flow(self) -> None:
+        self.assertTrue(EXAMPLE.is_file(), "Missing filled example")
+        text = EXAMPLE.read_text(encoding="utf-8")
+
+        self.assertIn("示例：M 级项目", text)
+        self.assertIn("Document Tier: M", text)
+        self.assertGreaterEqual(len(text.splitlines()), 150)
+        self.assertLessEqual(len(text.splitlines()), 200)
+
+        for field in (
+            "AI Readiness: ready",
+            "No new design decisions required: yes",
+            "Spec status: approved",
+            "Implementation allowed: yes",
+            "Approved by:",
+            "Approval date:",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, text)
+
+        for milestone in ("P0", "M1", "M2"):
+            with self.subTest(milestone=milestone):
+                self.assertRegex(text, rf"(?m)^## .*\b{milestone}\b")
+                self.assertRegex(text, rf"(?m)^\| {milestone}-DONE(?:-\d+)? \|")
+
+        for category in (
+            "happy",
+            "edge",
+            "error",
+            "non-functional",
+            "data-integrity",
+            "safety",
+        ):
+            with self.subTest(category=category):
+                self.assertRegex(text, rf"(?m)^\| [^|]+ \| {re.escape(category)} \|")
+
+        self.assertIn("Task -> AC", text)
+        self.assertIn("阶段报告", text)
+        self.assertIn("handoff", text.lower())
 
 
 if __name__ == "__main__":
