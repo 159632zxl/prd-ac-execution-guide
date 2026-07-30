@@ -2,8 +2,6 @@
 
 Pocket Ledger v1.0 · 2026-07-30 · 供 Codex / Claude 执行
 
-> 本文展示一个字段完整、可直接交给 AI 执行器的 M 级 PRD。
-
 ```text
 Spec status: approved
 Document Tier: M
@@ -33,7 +31,7 @@ AI Readiness: ready
 No new design decisions required: yes
 Known files / directories: ledger.py, tests/test_ledger.py, data/ledger.jsonl
 Expected outputs: 可新增和列出记录的 CLI、单元测试、阶段报告
-Validation commands: python -m unittest -v; python ledger.py list --file data/ledger.jsonl
+Validation commands: python -m unittest -v; python ledger.py list --file <tempdir>/ledger.jsonl
 Blocking ambiguities: none
 Human confirmation: 产品负责人已确认金额使用整数分、日期使用 ISO 8601
 High-risk confirmation: 不允许覆盖或重写既有账本
@@ -45,13 +43,17 @@ Validation evidence: 命令输出、退出码、临时账本内容
 | Goal | 新增和读取个人收支记录 | PASS |
 | Non-goals | 同步、GUI、多人账户明确排除 | PASS |
 | Truth source | JSONL 文件唯一真源 | PASS |
+| Boundaries | CLI、测试和本地文件边界已命名 | PASS |
+| Files | ledger.py、tests 和数据路径已列出 | PASS |
 | Contracts | 命令、字段和错误码已定义 | PASS |
+| Existing reuse targets | 使用 Python 标准库和现有 JSONL 结构 | PASS |
+| Confirmation gates | 产品负责人和高风险禁止项已确认 | PASS |
 | Tasks | 每个任务映射 AC | PASS |
 | Tests | 单元测试和 CLI smoke 命令已定义 | PASS |
+| Expected result | CLI、测试和阶段报告已命名 | PASS |
+| Design load | 实现无需补核心架构决策 | PASS |
 
-### 0.2 Approval Gate
-
-批准范围仅包含 `add`、`list` 两个命令和本地 JSONL 存储。新增依赖、修改存储格式或加入删除命令必须重新确认。
+**Approval Gate：** 批准范围仅包含 `add`、`list` 两个命令和本地 JSONL 存储。新增依赖、修改存储格式或加入删除命令必须重新确认。
 
 ## 1 项目概述
 
@@ -78,7 +80,7 @@ Validation evidence: 命令输出、退出码、临时账本内容
 WHEN add 收到合法参数, THE SYSTEM SHALL 原子追加一条 JSON 记录。
 IF 金额不是正整数分, THE SYSTEM SHALL 返回退出码 2 且不写文件。
 IF 任一既有 JSONL 行损坏, THE SYSTEM SHALL 返回退出码 1 并指出行号。
-WHEN list 读取有效账本, THE SYSTEM SHALL 按原顺序输出全部记录。
+WHEN list 读取有效账本, THE SYSTEM SHALL 按原顺序输出固定表头、分隔线和 CNY 金额。
 ```
 
 ### 2.2 CLI interface
@@ -86,12 +88,18 @@ WHEN list 读取有效账本, THE SYSTEM SHALL 按原顺序输出全部记录。
 | Command | Input | Output | Writes |
 | --- | --- | --- | --- |
 | `add` | date, category, cents, note, file | 记录 ID | 追加 JSON |
-| `list` | `--file` | 表头和账目行 | 无 |
+| `list` | `--file` | 固定表头、分隔线和 CNY 金额 | 无 |
+
+`list` 输出以下三行：
+
+- `DATE | CATEGORY | AMOUNT (CNY) | NOTE`
+- `-----|----------|--------------|-----`
+- `2026-07-30 | food | 12.34 CNY | lunch`；整数分除以 100，固定两位小数并追加 `CNY`。
 
 ```text
 producer -> consumer: argparse CLI -> JSONL repository
 forbidden: truncate, rewrite, delete, or silently skip malformed records
-validation: unit tests plus CLI smoke commands against a temporary file
+validation: unit tests plus CLI smoke commands in tempfile.TemporaryDirectory()
 ```
 
 ## 3 Task -> AC 映射
@@ -107,20 +115,18 @@ validation: unit tests plus CLI smoke commands against a temporary file
 ## 4 P0 Current-state Review
 
 确认 Python 3.11+ 可用，目标目录无同名未纳管文件，并记录 `ledger.py --help` 的预期命令。不得创建实现文件，直到路径检查完成。
-
 Validation: `python --version` 成功；目标路径检查的结果写入阶段报告。
 
 ## 5 M1 Foundation
 
 实现纯函数校验、记录序列化、逐行读取和追加写入。金额保存为整数分，日期必须通过 `datetime.date.fromisoformat`，记录 ID 使用 `uuid.uuid4().hex`。
-
 批次结束运行：`python -m unittest tests.test_ledger.LedgerRepositoryTests -v`。
 
 ## 6 M2 CLI Integration
 
-用 `argparse` 接入 `add` 和 `list`。业务错误写入 stderr；参数错误返回 2，存储损坏返回 1，成功返回 0。`list` 对空文件只输出表头。
-
-批次结束运行：`python -m unittest -v`，再对临时文件依次执行 add、list，并核对 JSONL 与终端输出。
+用 `argparse` 接入 `add` 和 `list`。业务错误写入 stderr；参数错误返回 2，存储损坏返回 1，成功返回 0。
+`list` 对空文件只输出固定表头和分隔线。
+运行 `python -m unittest -v`；在 TemporaryDirectory 执行 add/list，并用 finally 清理。
 
 ## 7 填好的阶段报告
 
@@ -188,7 +194,7 @@ Spec status: approved
 
 | AC | Category | Requirement | Verification Method | Severity |
 | --- | --- | --- | --- | --- |
-| M2-DONE | happy | add 后 list 显示同一条记录 | 对临时文件运行 add、list 并比对字段 | FAIL |
-| M2-EDGE-01 | edge | 空账本 list 成功且无数据行 | 对空文件运行 list 并确认退出码 0 | FAIL |
+| M2-DONE | happy | list 显示固定 CNY 表格 | smoke 核对表头、12.34 CNY 和原记录 | FAIL |
+| M2-EDGE-01 | edge | 空账本只有固定表头 | smoke 核对退出码 0 和无数据行 | FAIL |
 | M2-NF-01 | non-functional | 测试在 10 秒内完成 | 计时运行 unittest | WARN |
-| M2-SAFE-01 | safety | 损坏行阻止读取且不改文件 | 注入损坏行后运行 list 并比较文件哈希 | FAIL |
+| M2-SAFE-01 | safety | 损坏行阻止读取且不改文件 | smoke 核对文件哈希 | FAIL |

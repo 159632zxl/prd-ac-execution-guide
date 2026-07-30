@@ -11,6 +11,33 @@ TEMPLATE = REPO_ROOT / "references" / "prd_template.md"
 EXAMPLE = REPO_ROOT / "references" / "example_prd_filled.md"
 README = REPO_ROOT / "README.md"
 
+READINESS_FIELDS = (
+    "AI Readiness",
+    "No new design decisions required",
+    "Known files / directories",
+    "Expected outputs",
+    "Validation commands",
+    "Blocking ambiguities",
+    "Human confirmation",
+    "High-risk confirmation",
+    "Validation evidence",
+)
+
+READINESS_CHECKS = (
+    "Goal",
+    "Non-goals",
+    "Truth source",
+    "Boundaries",
+    "Files",
+    "Contracts",
+    "Existing reuse targets",
+    "Confirmation gates",
+    "Tasks",
+    "Tests",
+    "Expected result",
+    "Design load",
+)
+
 
 def section(text: str, heading: str) -> str:
     match = re.search(
@@ -149,6 +176,52 @@ class ReferenceDocumentContractTests(unittest.TestCase):
         self.assertIn("Task -> AC", text)
         self.assertIn("阶段报告", text)
         self.assertIn("handoff", text.lower())
+
+    def test_readiness_fields_and_checks_are_aligned(self) -> None:
+        documents = {
+            "skill": section(SKILL.read_text(encoding="utf-8"), "AI Readiness Gate"),
+            "template": section(
+                TEMPLATE.read_text(encoding="utf-8"),
+                "0.1 AI Readiness Gate",
+            ),
+            "example": section(
+                EXAMPLE.read_text(encoding="utf-8"),
+                "0 AI Readiness 与 Approval Gate",
+            ),
+        }
+
+        for name, text in documents.items():
+            with self.subTest(document=name, contract="fields"):
+                last_position = -1
+                for field in READINESS_FIELDS:
+                    position = text.find(f"{field}:")
+                    self.assertGreater(position, last_position, field)
+                    last_position = position
+
+            with self.subTest(document=name, contract="checks"):
+                last_position = -1
+                for check in READINESS_CHECKS:
+                    match = re.search(rf"(?m)^\| {re.escape(check)} \|", text)
+                    self.assertIsNotNone(match, check)
+                    position = match.start()
+                    self.assertGreater(position, last_position, check)
+                    last_position = position
+
+    def test_filled_example_defines_list_output_and_safe_smoke_contract(self) -> None:
+        text = EXAMPLE.read_text(encoding="utf-8")
+
+        for contract in (
+            "DATE | CATEGORY | AMOUNT (CNY) | NOTE",
+            "-----|----------|--------------|-----",
+            "12.34 CNY",
+            "整数分除以 100",
+            "固定两位小数",
+            "tempfile.TemporaryDirectory()",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, text)
+        self.assertRegex(text, r"(?i)finally")
+        self.assertNotIn("python ledger.py list --file data/ledger.jsonl", text)
 
 
 class ReadmeContractTests(unittest.TestCase):

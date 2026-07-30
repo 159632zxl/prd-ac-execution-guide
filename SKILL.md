@@ -112,16 +112,25 @@ Known files / directories:
 Expected outputs:
 Validation commands:
 Blocking ambiguities:
+Human confirmation:
+High-risk confirmation:
+Validation evidence:
 ```
 
-| Check | Ready only when |
-| --- | --- |
-| Scope | Goal and non-goals are explicit |
-| Authority | Truth source, ownership, and external boundaries are named |
-| Contracts | Inputs, outputs, writes, forbidden actions, and reuse targets are known or discoverable |
-| Safety | Approval and high-risk confirmation owners are named |
-| Execution | Tasks map to AC IDs and validation commands |
-| Design load | The agent need not invent architecture, behavior, paths, schemas, or tests |
+| Item | Requirement | Status |
+| --- | --- | --- |
+| Goal | One concrete outcome | PASS/FAIL |
+| Non-goals | Scope exclusions explicit | PASS/FAIL |
+| Truth source | Data/source of record named | PASS/FAIL |
+| Boundaries | Owned and external systems named | PASS/FAIL |
+| Files | Known files/directories listed or discoverable | PASS/FAIL |
+| Contracts | Inputs/outputs/writes/forbidden actions specified | PASS/FAIL |
+| Existing reuse targets | Reuse targets or discovery step named | PASS/FAIL |
+| Confirmation gates | Approval and high-risk owners named | PASS/FAIL |
+| Tasks | Each task maps to AC IDs | PASS/FAIL |
+| Tests | Validation commands or observable checks exist | PASS/FAIL |
+| Expected result | Final artifact or state is named | PASS/FAIL |
+| Design load | No new implementation decisions required | PASS/FAIL |
 
 Any failed row sets `AI Readiness: not-ready` and creates a blocking question.
 
