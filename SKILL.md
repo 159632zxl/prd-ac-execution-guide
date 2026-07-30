@@ -200,6 +200,9 @@ Map every EARS requirement to AC. For each boundary record `producer -> consumer
 
 Prefer `P0 + M1..Mn`: P0 reviews current state; M1 establishes foundations; later milestones build core paths, integration, and optional enhancements. Preserve an old-to-new mapping table when replacing a prior phase plan.
 
+After an optional section number,
+milestone headings must start with `P0` or `M<n>`.
+
 Every task maps to existing AC IDs:
 
 ```markdown

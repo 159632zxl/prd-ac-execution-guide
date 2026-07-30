@@ -116,6 +116,12 @@ class SkillDocumentContractTests(unittest.TestCase):
             with self.subTest(concept=concept):
                 self.assertIn(concept, acceptance_rules)
 
+    def test_skill_documents_canonical_milestone_heading_shape(self) -> None:
+        self.assertRegex(
+            self.text,
+            r"After an optional section number,\s+milestone headings must start with `P0` or `M<n>`\.",
+        )
+
     def test_executor_statement_has_five_process_rules(self) -> None:
         executor = section(self.text, "AI Executor Statement")
         numbered_rules = re.findall(r"(?m)^\d+\. ", executor)
@@ -154,6 +160,14 @@ class SkillDocumentContractTests(unittest.TestCase):
 
 
 class ReferenceDocumentContractTests(unittest.TestCase):
+    def test_template_documents_canonical_milestone_heading_shape(self) -> None:
+        text = TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertRegex(
+            text,
+            r"After an optional section number,\s+milestone headings must start with `P0` or `M<n>`\.",
+        )
+
     def test_canonical_global_rules_align_across_documents(self) -> None:
         documents = {
             "skill": SKILL.read_text(encoding="utf-8"),
@@ -325,6 +339,12 @@ class ReadmeContractTests(unittest.TestCase):
         ):
             with self.subTest(concept=concept):
                 self.assertIn(concept, self.text)
+
+    def test_readme_documents_canonical_milestone_heading_shape(self) -> None:
+        self.assertRegex(
+            self.text,
+            r"After an optional section number,\s+milestone headings must start with `P0` or `M<n>`\.",
+        )
 
 
 if __name__ == "__main__":

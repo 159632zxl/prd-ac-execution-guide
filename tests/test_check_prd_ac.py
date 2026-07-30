@@ -268,7 +268,23 @@ class CheckerTests(unittest.TestCase):
         result = self.run_checker(document)
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertNotIn("Missing DONE AC for milestone M9", result.stdout)
+        self.assertEqual("PASS", result.stdout.strip())
+
+    def test_noncanonical_milestone_heading_with_matching_ac_warns(self) -> None:
+        document = build_document().replace(
+            "## Acceptance Criteria",
+            "## 6 阶段 M2 CLI Integration\n\nImplement M2.\n\n## Acceptance Criteria",
+        ).replace(
+            "| P0-ERR-01 | error | Invalid amounts are rejected | Run the invalid-amount test and inspect the error | FAIL |",
+            "| P0-ERR-01 | error | Invalid amounts are rejected | Run the invalid-amount test and inspect the error | FAIL |\n"
+            "| M2-EDGE-01 | edge | Empty ledger is supported | Run the empty-ledger test | FAIL |",
+        )
+
+        result = self.run_checker(document)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("WARN", result.stdout)
+        self.assertIn("M2 AC rows exist but no canonical M2 milestone heading was found", result.stdout)
 
     def test_numbered_and_bilingual_acceptance_headings_are_accepted(self) -> None:
         headings = (

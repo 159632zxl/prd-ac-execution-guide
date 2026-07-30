@@ -183,6 +183,19 @@ def find_milestones(lines: list[str]) -> set[str]:
     return milestones
 
 
+def find_milestone_mentions(lines: list[str]) -> set[str]:
+    mentions: set[str] = set()
+    for line in lines:
+        match = HEADING_RE.match(line)
+        if not match:
+            continue
+        mentions.update(
+            milestone.upper()
+            for milestone in re.findall(r"\bM\d+\b", match.group(1), re.IGNORECASE)
+        )
+    return mentions
+
+
 def append_unique(items: list[str], message: str) -> None:
     if message not in items:
         items.append(message)
@@ -326,13 +339,26 @@ def validate_common_structure(
     if len(found_categories) < 2:
         warnings.append("Few AC categories found; use additional categories where applicable")
 
-    milestones = find_milestones(
+    narrative_lines = (
         visible_lines[:acceptance_index] if acceptance_index is not None else visible_lines
     )
+    milestones = find_milestones(narrative_lines)
     for milestone in sorted(milestones):
         done_pattern = re.compile(rf"^{re.escape(milestone)}-DONE(?:-\d+)?$")
         if not any(done_pattern.fullmatch(ac_id) for ac_id in defined_ids):
             failures.append(f"Missing DONE AC for milestone {milestone}")
+
+    mentioned_milestones = find_milestone_mentions(narrative_lines)
+    ac_milestones = {
+        match.group(1)
+        for ac_id in defined_ids
+        if (match := re.match(r"^(M\d+)-", ac_id))
+    }
+    noncanonical_milestones = (mentioned_milestones & ac_milestones) - milestones
+    for milestone in sorted(noncanonical_milestones):
+        warnings.append(
+            f"{milestone} AC rows exist but no canonical {milestone} milestone heading was found"
+        )
 
     for table in task_tables:
         task_column = header_index(table.headers, "task")
@@ -353,6 +379,7 @@ def validate_common_structure(
     placeholder_count = count_placeholders(text, all_tables)
     if placeholder_count > 10:
         warnings.append(f"Found {placeholder_count} placeholder tokens; complete the draft before approval")
+
 
 def validate_tier(
     text: str,

@@ -262,6 +262,9 @@ validation:
 
 ## 4 P0 现状复核
 
+<!-- After an optional section number,
+milestone headings must start with `P0` or `M<n>`. -->
+
 > 禁止项见验收标准总览 `§AC.0`；本阶段验收见 `§AC.P0`。
 
 ### 4.1 目标

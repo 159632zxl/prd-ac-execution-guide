@@ -46,6 +46,8 @@ If implementation conflicts with PRD/AC, revise the PRD or get approval before c
 - **Global Forbidden Items (`G-*`)** — irreversible or architecture-breaking mistakes, checked every phase.
 - **EARS requirements** — `WHEN <condition>, THE SYSTEM SHALL <behavior>` — every EARS line maps to at least one AC row.
 - **Milestone pattern** — prefer `P0 + M1..Mn` over many tiny phases; each milestone has a `DONE` gate.
+- After an optional section number,
+  milestone headings must start with `P0` or `M<n>`.
 - **Execution Mode** — `step | batch | phase`, declared up front so the agent knows where to stop and check.
 - **Handoff / Recovery** — a resume block so an interrupted task can be picked up without re-reading history.
 
