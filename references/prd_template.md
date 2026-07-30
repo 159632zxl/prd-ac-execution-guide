@@ -354,6 +354,8 @@ Spec status:
 
 `G-01` 至 `G-08` 跨文档固定为以下同号同义规则；项目专属禁止项从 `G-09` 起连续追加。
 
+<!-- markdownlint-disable MD013 -->
+
 | AC | 禁止项 | Canonical English | 等级 |
 | --- | --- | --- | --- |
 | G-01 | 禁止绕过事实真源 | Do not bypass the truth source. | FAIL |
@@ -364,6 +366,8 @@ Spec status:
 | G-06 | 禁止未确认即臆想业务规则或用户意图 | Do not invent business rules or user intent without confirmation. | FAIL |
 | G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | Do not expand scope or perform high-risk operations without approval. | FAIL |
 | G-08 | 禁止无 Validation evidence 宣称完成 | Do not claim completion without validation evidence. | FAIL |
+
+<!-- markdownlint-enable MD013 -->
 
 ### §AC.P0 P0 验收
 

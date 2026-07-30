@@ -169,6 +169,8 @@ Spec status: approved
 
 `G-01` 至 `G-08` 跨文档固定；账本项目专属禁止项从 `G-09` 起连续追加。
 
+<!-- markdownlint-disable MD013 -->
+
 | AC | 禁止项 | Canonical English | 等级 |
 | --- | --- | --- | --- |
 | G-01 | 禁止绕过事实真源 | Do not bypass the truth source. | FAIL |
@@ -183,6 +185,8 @@ Spec status: approved
 | G-10 | 禁止使用浮点数保存金额 | Do not store monetary amounts as floating-point values. | FAIL |
 | G-11 | 禁止静默跳过损坏记录 | Do not silently skip malformed records. | FAIL |
 | G-12 | 禁止未经批准增加依赖或命令 | Do not add dependencies or commands without approval. | FAIL |
+
+<!-- markdownlint-enable MD013 -->
 
 ### §AC.P0 P0 验收
 

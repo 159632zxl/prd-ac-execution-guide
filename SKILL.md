@@ -222,7 +222,10 @@ Include this near the top. The final Acceptance Criteria overview is the only ac
 
 ## Acceptance Criteria Rules
 
-The last chapter is always the Acceptance Criteria overview. Prefer `验收标准总览（Acceptance Criteria）`; the checker also accepts its English equivalent, an optional section number, and full-width or ASCII parentheses. Cite AC as `见验收标准总览 §AC.x` rather than by chapter number.
+The last chapter is always the Acceptance Criteria overview. Prefer
+`验收标准总览（Acceptance Criteria）`. The English equivalent is also accepted,
+as are an optional section number and full-width or ASCII parentheses.
+Cite AC as `见验收标准总览 §AC.x` rather than by chapter number.
 
 - Use stable IDs such as `G-01`, `P0-DONE`, `M1-DIR-01`, `M2-EG-01`, `M5-DONE-03`.
 - Put global prohibitions in `§AC.0`; give each milestone `§AC.P0`, `§AC.M1`, and so on.
@@ -239,7 +242,11 @@ The last chapter is always the Acceptance Criteria overview. Prefer `验收标�
 
 ## Global Forbidden Items
 
-本表是 Execution Attitude 的可检查化，用于不可逆或破坏架构的错误。`G-01` 至 `G-08` 跨文档固定为以下同号同义规则；项目专属禁止项从 `G-09` 起连续追加。
+本表是 Execution Attitude 的可检查化，用于不可逆或破坏架构的错误。
+`G-01` 至 `G-08` 跨文档固定为以下同号同义规则；项目专属禁止项从
+`G-09` 起连续追加。
+
+<!-- markdownlint-disable MD013 -->
 
 | AC | 禁止项 | Canonical English | 等级 |
 | --- | --- | --- | --- |
@@ -251,6 +258,8 @@ The last chapter is always the Acceptance Criteria overview. Prefer `验收标�
 | G-06 | 禁止未确认即臆想业务规则或用户意图 | Do not invent business rules or user intent without confirmation. | FAIL |
 | G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | Do not expand scope or perform high-risk operations without approval. | FAIL |
 | G-08 | 禁止无 Validation evidence 宣称完成 | Do not claim completion without validation evidence. | FAIL |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Handoff and Reports
 
