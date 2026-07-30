@@ -105,6 +105,17 @@ class SkillDocumentContractTests(unittest.TestCase):
             with self.subTest(reference=reference):
                 self.assertIn(reference, self.text)
 
+    def test_acceptance_heading_documents_number_and_parenthesis_compatibility(self) -> None:
+        acceptance_rules = section(self.text, "Acceptance Criteria Rules")
+
+        for concept in (
+            "optional section number",
+            "full-width or ASCII parentheses",
+            "English equivalent",
+        ):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, acceptance_rules)
+
     def test_executor_statement_has_five_process_rules(self) -> None:
         executor = section(self.text, "AI Executor Statement")
         numbered_rules = re.findall(r"(?m)^\d+\. ", executor)
@@ -290,6 +301,27 @@ class ReadmeContractTests(unittest.TestCase):
             "AC semantics",
             "business correctness",
             "risk decisions",
+        ):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, self.text)
+
+    def test_readme_documents_canonical_global_id_migration(self) -> None:
+        for concept in (
+            "Breaking change",
+            "G-01` through `G-08",
+            "G-09",
+            "Task -> AC",
+            "documents without `Document Tier`",
+        ):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, self.text)
+
+    def test_readme_documents_template_failure_and_heading_compatibility(self) -> None:
+        for concept in (
+            "blank L-tier template",
+            "expected to fail",
+            "optional section number",
+            "full-width or ASCII parentheses",
         ):
             with self.subTest(concept=concept):
                 self.assertIn(concept, self.text)

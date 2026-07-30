@@ -222,7 +222,7 @@ Include this near the top. The final Acceptance Criteria overview is the only ac
 
 ## Acceptance Criteria Rules
 
-The last chapter is always `验收标准总览（Acceptance Criteria）`; cite it as `见验收标准总览 §AC.x`.
+The last chapter is always the Acceptance Criteria overview. Prefer `验收标准总览（Acceptance Criteria）`; the checker also accepts its English equivalent, an optional section number, and full-width or ASCII parentheses. Cite AC as `见验收标准总览 §AC.x` rather than by chapter number.
 
 - Use stable IDs such as `G-01`, `P0-DONE`, `M1-DIR-01`, `M2-EG-01`, `M5-DONE-03`.
 - Put global prohibitions in `§AC.0`; give each milestone `§AC.P0`, `§AC.M1`, and so on.

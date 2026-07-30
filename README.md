@@ -95,11 +95,25 @@ explicitly.
 python scripts/check_prd_ac.py path/to/your-prd.md
 ```
 
-The checker applies tier-specific structural gates, validates AC IDs/categories/severity and every verification method, rejects dangling Task → AC references and missing milestone `DONE` gates, detects malformed or duplicate `G-*` IDs, and warns about intentional G-ID gaps or excessive placeholder residue. It prints `PASS` or `FAIL` with specific findings; older Chinese phrases are recommendations rather than language-locked blockers.
+The blank L-tier template is expected to fail because its AC requirements and
+verification methods still contain placeholders. Fill the draft before using
+the checker as an approval gate.
+
+The checker applies tier-specific structural gates, validates AC IDs/categories/severity and every verification method, rejects dangling Task → AC references and missing milestone `DONE` gates, detects malformed or duplicate `G-*` IDs, and warns about intentional G-ID gaps or excessive placeholder residue. The final heading may use `验收标准总览`, its bilingual form, or the English equivalent `Acceptance Criteria`, with an optional section number and full-width or ASCII parentheses. It prints `PASS` or `FAIL` with specific findings; older Chinese phrases are recommendations rather than language-locked blockers.
 
 The checker validates structural completeness, cross-reference integrity, and
 gate relationships. It does not replace human review of AC semantics,
 business correctness, or risk decisions.
+
+### Canonical G-ID migration
+
+**Breaking change:** tiered documents now reserve `G-01` through `G-08` for the
+canonical cross-document rules in `SKILL.md`. A document that declares
+`Document Tier` but defines only part of that range, or reuses those IDs for
+project rules, now fails validation. Restore all eight canonical rows, renumber
+project-specific rules from `G-09`, update every Task -> AC reference, and run
+the checker again. Historical documents without `Document Tier` retain the
+backward-compatible base checks.
 
 ## Document Shape (at a glance)
 

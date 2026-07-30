@@ -372,6 +372,19 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("PASS", result.stdout.strip())
 
+    def test_repository_l_template_fails_on_placeholder_verification_methods(self) -> None:
+        template = REPO_ROOT / "references" / "prd_template.md"
+        result = subprocess.run(
+            [sys.executable, str(CHECKER), str(template)],
+            capture_output=True,
+            check=False,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("placeholder verification method", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
