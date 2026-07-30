@@ -186,6 +186,7 @@ def append_unique(items: list[str], message: str) -> None:
 def validate_common_structure(
     text: str,
     visible_lines: list[str],
+    tier: str | None,
     failures: list[str],
     warnings: list[str],
 ) -> None:
@@ -273,6 +274,14 @@ def validate_common_structure(
         if missing_numbers:
             formatted = ", ".join(f"G-{number:02d}" for number in missing_numbers)
             warnings.append(f"Global AC ID gap: missing {formatted}")
+
+    if tier in {"S", "M", "L"}:
+        canonical_ids = {f"G-{number:02d}" for number in range(1, 9)}
+        missing_canonical = sorted(canonical_ids - set(global_ids))
+        if missing_canonical:
+            failures.append(
+                "Missing canonical global AC IDs: " + ", ".join(missing_canonical)
+            )
 
     for table in ac_tables:
         columns = {
@@ -416,7 +425,7 @@ def check_document(text: str) -> tuple[list[str], list[str]]:
     elif tier not in {"S", "M", "L"}:
         failures.append(f"Invalid Document Tier: {tier}; expected S, M, or L")
 
-    validate_common_structure(text, visible_lines, failures, warnings)
+    validate_common_structure(text, visible_lines, tier, failures, warnings)
     validate_tier(text, visible_lines, tier, failures)
 
     for phrase in LEGACY_REQUIRED_PHRASES:

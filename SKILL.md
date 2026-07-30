@@ -239,18 +239,18 @@ The last chapter is always `验收标准总览（Acceptance Criteria）`; cite i
 
 ## Global Forbidden Items
 
-本表是 Execution Attitude 的可检查化，用于不可逆或破坏架构的错误。
+本表是 Execution Attitude 的可检查化，用于不可逆或破坏架构的错误。`G-01` 至 `G-08` 跨文档固定为以下同号同义规则；项目专属禁止项从 `G-09` 起连续追加。
 
-| AC | 禁止项 | 等级 |
-| --- | --- | --- |
-| G-01 | 禁止绕过事实真源 | FAIL |
-| G-02 | 禁止无证据更新长期状态 | FAIL |
-| G-03 | 禁止先做增强层再补核心闭环 | FAIL |
-| G-04 | 禁止覆盖用户已有文件且无说明 | FAIL |
-| G-05 | 禁止未查询即猜测接口、路径、schema 或命令 | FAIL |
-| G-06 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
-| G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
-| G-08 | 禁止无 Validation evidence 宣称完成 | FAIL |
+| AC | 禁止项 | Canonical English | 等级 |
+| --- | --- | --- | --- |
+| G-01 | 禁止绕过事实真源 | Do not bypass the truth source. | FAIL |
+| G-02 | 禁止无证据更新长期状态 | Do not update persistent state without evidence. | FAIL |
+| G-03 | 禁止先做增强层再补核心闭环 | Do not build enhancements before completing the core loop. | FAIL |
+| G-04 | 禁止覆盖用户已有文件且无说明 | Do not overwrite existing user files without explicit disclosure. | FAIL |
+| G-05 | 禁止未查询即猜测接口、路径、schema 或命令 | Do not guess interfaces, paths, schemas, or commands without checking. | FAIL |
+| G-06 | 禁止未确认即臆想业务规则或用户意图 | Do not invent business rules or user intent without confirmation. | FAIL |
+| G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | Do not expand scope or perform high-risk operations without approval. | FAIL |
+| G-08 | 禁止无 Validation evidence 宣称完成 | Do not claim completion without validation evidence. | FAIL |
 
 ## Handoff and Reports
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -49,8 +50,14 @@ Confirm the target path and command contract.
 
 | AC | Forbidden item | Severity |
 |----|----------------|----------|
-| G-01 | Do not overwrite the truth source | FAIL |
-| G-02 | Do not claim completion without evidence | FAIL |
+| G-01 | Do not bypass the truth source | FAIL |
+| G-02 | Do not update persistent state without evidence | FAIL |
+| G-03 | Do not build enhancements before completing the core loop | FAIL |
+| G-04 | Do not overwrite existing user files without explicit disclosure | FAIL |
+| G-05 | Do not guess interfaces, paths, schemas, or commands without checking | FAIL |
+| G-06 | Do not invent business rules or user intent without confirmation | FAIL |
+| G-07 | Do not expand scope or perform high-risk operations without approval | FAIL |
+| G-08 | Do not claim completion without validation evidence | FAIL |
 
 ### §AC.P0 P0 acceptance
 
@@ -275,24 +282,25 @@ class CheckerTests(unittest.TestCase):
 
     def test_duplicate_global_id_fails(self) -> None:
         document = build_document().replace(
-            "| G-02 | Do not claim completion without evidence | FAIL |",
-            "| G-01 | Do not claim completion without evidence | FAIL |",
+            "| G-02 | Do not update persistent state without evidence | FAIL |",
+            "| G-01 | Do not update persistent state without evidence | FAIL |",
         )
 
         self.assert_fails_with(document, "Duplicate global AC ID: G-01")
 
     def test_malformed_global_id_fails(self) -> None:
         document = build_document().replace(
-            "| G-02 | Do not claim completion without evidence | FAIL |",
-            "| G-2 | Do not claim completion without evidence | FAIL |",
+            "| G-02 | Do not update persistent state without evidence | FAIL |",
+            "| G-2 | Do not update persistent state without evidence | FAIL |",
         )
 
         self.assert_fails_with(document, "Malformed global AC ID: G-2")
 
     def test_global_id_gap_is_warning(self) -> None:
-        document = build_document().replace(
-            "| G-02 | Do not claim completion without evidence | FAIL |",
-            "| G-03 | Do not claim completion without evidence | FAIL |",
+        document = (
+            build_document()
+            .replace("Document Tier: S\n", "")
+            .replace("| G-02 | Do not update persistent state without evidence | FAIL |\n", "")
         )
 
         result = self.run_checker(document)
@@ -300,6 +308,16 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("WARN", result.stdout)
         self.assertIn("Global AC ID gap", result.stdout)
+
+    def test_tiered_document_requires_canonical_global_ids(self) -> None:
+        document = build_document()
+        for number in range(3, 9):
+            document = re.sub(rf"(?m)^\| G-{number:02d} \|.*\n", "", document)
+
+        self.assert_fails_with(
+            document,
+            "Missing canonical global AC IDs: G-03, G-04, G-05, G-06, G-07, G-08",
+        )
 
     def test_more_than_ten_placeholders_is_warning(self) -> None:
         placeholders = "\n".join(f"Draft note {index}: TODO" for index in range(11))

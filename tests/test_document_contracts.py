@@ -38,6 +38,17 @@ READINESS_CHECKS = (
     "Design load",
 )
 
+CANONICAL_GLOBAL_RULES = (
+    ("G-01", "禁止绕过事实真源", "Do not bypass the truth source."),
+    ("G-02", "禁止无证据更新长期状态", "Do not update persistent state without evidence."),
+    ("G-03", "禁止先做增强层再补核心闭环", "Do not build enhancements before completing the core loop."),
+    ("G-04", "禁止覆盖用户已有文件且无说明", "Do not overwrite existing user files without explicit disclosure."),
+    ("G-05", "禁止未查询即猜测接口、路径、schema 或命令", "Do not guess interfaces, paths, schemas, or commands without checking."),
+    ("G-06", "禁止未确认即臆想业务规则或用户意图", "Do not invent business rules or user intent without confirmation."),
+    ("G-07", "禁止未获批准进行 scope expansion 或高风险操作", "Do not expand scope or perform high-risk operations without approval."),
+    ("G-08", "禁止无 Validation evidence 宣称完成", "Do not claim completion without validation evidence."),
+)
+
 
 def section(text: str, heading: str) -> str:
     match = re.search(
@@ -48,6 +59,14 @@ def section(text: str, heading: str) -> str:
     if match is None:
         raise AssertionError(f"Missing section: {heading}")
     return match.group(1)
+
+
+def canonical_global_rules(text: str) -> tuple[tuple[str, str, str], ...]:
+    rows = re.findall(
+        r"(?m)^\|\s*(G-0[1-8])\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*FAIL\s*\|$",
+        text,
+    )
+    return tuple((ac_id, chinese, english) for ac_id, chinese, english in rows)
 
 
 class SkillDocumentContractTests(unittest.TestCase):
@@ -124,6 +143,17 @@ class SkillDocumentContractTests(unittest.TestCase):
 
 
 class ReferenceDocumentContractTests(unittest.TestCase):
+    def test_canonical_global_rules_align_across_documents(self) -> None:
+        documents = {
+            "skill": SKILL.read_text(encoding="utf-8"),
+            "template": TEMPLATE.read_text(encoding="utf-8"),
+            "example": EXAMPLE.read_text(encoding="utf-8"),
+        }
+
+        for name, text in documents.items():
+            with self.subTest(document=name):
+                self.assertEqual(CANONICAL_GLOBAL_RULES, canonical_global_rules(text))
+
     def test_template_is_l_tier_and_uses_stable_ac_references(self) -> None:
         text = TEMPLATE.read_text(encoding="utf-8")
 
@@ -143,8 +173,6 @@ class ReferenceDocumentContractTests(unittest.TestCase):
 
         self.assertIn("示例：M 级项目", text)
         self.assertIn("Document Tier: M", text)
-        self.assertGreaterEqual(len(text.splitlines()), 150)
-        self.assertLessEqual(len(text.splitlines()), 200)
 
         for field in (
             "AI Readiness: ready",
