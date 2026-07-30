@@ -9,7 +9,16 @@ description: Use when creating or rewriting PRDs, implementation guides, refacto
 
 Create spec-driven PRDs for AI agents. The PRD plus numbered Acceptance Criteria is the implementation truth source; narrative chapters explain, AC gates decide completion.
 
-Use this for systems, refactors, multi-stage implementation plans, agent handoffs, and any task where "looks reasonable" is weaker than "passes explicit gates".
+Use this for systems, refactors, multi-stage implementation plans, agent handoffs, and any task where "looks reasonable" is weaker than "passes explicit gates". 动笔前先按 Document Tiers 定级。
+
+## Terminology
+
+| Term | 本文约定 |
+|---|---|
+| Validation evidence | 验证证据：命令、可观察结果、产物或明确记录的缺口 |
+| handoff | 交接块：供下一执行者无猜测地恢复工作 |
+| readiness gate | 就绪门：判断实现是否还需要补核心设计决策 |
+| truth source | 事实真源：发生冲突时具有最终权威的数据或规范 |
 
 ## Core Principle
 
@@ -50,30 +59,51 @@ Translate that attitude into PRD requirements:
 
 ## Clarify Before Writing
 
-If any of these are unclear, ask concise questions or create an "Open Questions" section before writing the final PRD:
+If any item below is unclear, ask concise questions or create Open Questions before finalizing the PRD:
 
 ```text
-goal
-non-goals
-truth source
-system boundary
-inputs / outputs
-dependencies
-approval owner
-validation commands
-data integrity rules
-forbidden actions
-existing interfaces / reuse targets
-high-risk operations
-scope boundary
-rollback or recovery point
+goal; non-goals; truth source; system boundary; inputs / outputs
+dependencies; approval owner; validation commands; data integrity rules
+forbidden actions; existing interfaces / reuse targets; high-risk operations
+scope boundary; rollback or recovery point
 ```
 
-Do not fill unclear items by guessing. A PRD with guessed interfaces, imagined business rules, or missing validation is `not-ready`.
+Do not guess missing interfaces or business rules. A PRD with guessed contracts, imagined behavior, or undefined validation is `not-ready`.
+
+## Document Tiers
+
+Choose the tier by risk, ambiguity, external side effects, and recovery cost, not by project size.
+
+| Tier | Use when | Required content |
+|---|---|---|
+| S | Low risk, reversible, no new core design decisions | Goal, non-goals, boundary and truth source, tasks, AC table, validation |
+| M | Moderate ambiguity, coordination, or external effects | S + full readiness gate, approval, interfaces/boundaries, handoff |
+| L | High risk, costly recovery, broad effects, or long multi-stage execution | M + Architecture Constitution, Boundary Policy, full milestones, stage reports, complete `Proposal -> Requirements -> Design -> Tasks -> Implementation -> Acceptance` flow |
+
+High-risk or uncertain work must move to a higher tier. Never downgrade a document merely to avoid a gate.
+
+## Required Shape
+
+Start every tier with metadata and end with the acceptance authority:
+
+```text
+# PRD · <System / Feature Name>
+Spec status: draft | approved | superseded
+Document Tier: S | M | L
+Implementation allowed: yes | no
+> revision note
+> AI executor statement
+Goal -> Non-goals -> Boundary / truth source -> Tasks mapped to AC
+[M/L gates and contracts] -> [L milestones, reports, appendix]
+## 验收标准总览（Acceptance Criteria） <- 最后一章，唯一验收依据
+  §AC.0 -> §AC.P0 -> §AC.M1 ...
+```
+
+The exact chapter count may change, but the final chapter is always the Acceptance Criteria overview. Include a directory only when it improves navigation.
 
 ## AI Readiness Gate
 
-Before a PRD allows implementation, it must be AI-ready:
+M and L documents must include the full block; S may use a compact readiness note:
 
 ```text
 AI Readiness: ready | not-ready
@@ -84,312 +114,126 @@ Validation commands:
 Blocking ambiguities:
 ```
 
-The PRD is `not-ready` if the agent must invent architecture, choose a truth source, guess file locations, define tests, infer data contracts, or decide safety boundaries.
-
-The PRD is also `not-ready` if the agent must guess an interface, invent business behavior, create a new API without approval, expand scope, or perform high-risk work without Human confirmation.
-
-Minimum AI-ready checklist:
-
-| Item | Requirement |
+| Check | Ready only when |
 |---|---|
-| Goal | One concrete outcome |
-| Non-goals | Scope exclusions explicit |
-| Truth source | Data/source of record named |
-| Boundaries | Owned systems and external systems named |
-| Files | Known files/directories listed or discovery step required |
-| Contracts | Inputs/outputs/writes/forbidden actions specified |
-| Existing reuse targets | Existing interfaces/files/helpers/patterns named or discovery step required |
-| Confirmation gates | High-risk confirmation and business approval boundaries named |
-| Tasks | Each task maps to AC IDs |
-| Tests | Validation commands or observable checks exist |
-| Expected result | Final artifact or state is named |
-| Design load | Agent can implement without making new design decisions |
+| Scope | Goal and non-goals are explicit |
+| Authority | Truth source, ownership, and external boundaries are named |
+| Contracts | Inputs, outputs, writes, forbidden actions, and reuse targets are known or discoverable |
+| Safety | Approval and high-risk confirmation owners are named |
+| Execution | Tasks map to AC IDs and validation commands |
+| Design load | The agent need not invent architecture, behavior, paths, schemas, or tests |
+
+Any failed row sets `AI Readiness: not-ready` and creates a blocking question.
+
+## Approval Gate
+
+M and L documents add `Approved by`, `Approval date`, and `Supersedes` to the metadata. `draft` is discussion-only; `approved` permits implementation. Scope, truth-source, schema, or AC changes increment the version and update revision notes. A contradiction stops the current milestone until the PRD is revised or approval is renewed.
 
 ## Architecture Constitution
 
-For systems or refactors, define non-negotiable architecture rules before milestones:
+L documents define non-negotiable rules before milestones:
 
 ```text
-Architecture Constitution:
-- Truth source:
-- Derived indexes:
-- Ownership boundaries:
-- Existing interfaces / reuse targets:
-- Data integrity rules:
-- Security / safety rules:
-- Forbidden shortcuts:
-- Migration constraints:
-- Refactor limits:
+Truth source; derived indexes; ownership boundaries; reuse targets
+Data integrity; security / safety; forbidden shortcuts
+Migration constraints; refactor limits
 ```
 
-Rules in the constitution should become global `G-*` forbidden items or `data-integrity` AC rows.
+Constitution rules become `G-*`, `data-integrity`, or `safety` AC rows.
 
-## Workflow Variant
-
-Declare how the PRD was produced:
+## Workflow and Maintenance
 
 ```text
 Workflow Variant: requirements-first | design-first
-```
-
-Use:
-
-| Variant | Use when |
-|---|---|
-| requirements-first | User need is clear but architecture is undecided |
-| design-first | Existing architecture/system constraints dominate the solution |
-
-For refactors of existing systems, prefer `design-first`: inspect current system boundaries before writing tasks.
-
-## Spec Maintenance Mode
-
-State how the spec should live after implementation:
-
-```text
 Spec Maintenance Mode: spec-first | spec-anchored | spec-as-source
 ```
 
-Use:
-
-| Mode | Meaning |
+| Setting | Choice |
 |---|---|
-| spec-first | Spec drives one implementation pass, then may become historical |
-| spec-anchored | Spec remains the anchor and is updated when behavior/architecture changes |
-| spec-as-source | Spec is treated as an executable source artifact |
-
-For long-running personal systems, prefer `spec-anchored`.
+| requirements-first | Need is clear; architecture remains undecided |
+| design-first | Existing architecture or system constraints dominate; preferred for refactors |
+| spec-first | Drives one implementation pass, then may become historical |
+| spec-anchored | Remains the maintenance anchor and changes with behavior |
+| spec-as-source | Is treated as an executable source artifact |
 
 ## Boundary Policy
 
-Add an Always / Ask First / Never table for agent autonomy:
+Use an Always / Ask First / Never table when `G-*` alone is too coarse:
 
-```markdown
 | Always | Ask First | Never |
-|--------|-----------|-------|
+|---|---|---|
 | Run validation commands | Change truth-source schema | Delete historical data |
 | Reuse existing interfaces | Add external dependencies | Bypass AC gates |
-| Record validation evidence | scope expansion / high-risk operation | Guess interfaces or invent business rules |
-```
+| Record Validation evidence | Scope expansion / high-risk operation | Guess interfaces or invent business rules |
 
-Use this when forbidden items alone are too coarse. `Never` items should also appear as `G-*` AC rows.
+Never items must also be registered as `G-*` AC rows (see Global Forbidden Items).
 
-## Required Shape
+## Requirements and Interface Contracts
 
-Every output document should follow this structure unless the user explicitly asks otherwise:
-
-```text
-# PRD · <System / Feature Name>
-**<Codename> vX.Y · YYYY-MM-DD · 供 Codex / Claude 执行**
-
-> vX.Y 修订说明
-
-## 目录
-1. 项目概述
-2. 依据文件与执行边界
-3. 目标目录结构与接口
-4. P0 ...
-...
-12. 验收标准总览（Acceptance Criteria） ← AI 执行器必读，唯一验收依据
-
-> AI 执行器强制阅读声明
-```
-
-The exact section count may change, but keep these roles:
-
-| Section | Role |
-|---|---|
-| Revision note | State what changed and what conflicts were removed |
-| Directory | Make long docs navigable |
-| AI executor statement | Tell agents what must be read and what blocks progress |
-| Spec authority | State that PRD/AC are the implementation truth source |
-| AI readiness | State whether implementation can start without new design decisions |
-| Execution attitude | Require query-first, confirmation-first, reuse-first, validation-first behavior |
-| Architecture constitution | Record non-negotiable architecture rules |
-| Workflow and maintenance mode | State requirements-first/design-first and spec lifecycle |
-| Boundary policy | Define Always / Ask First / Never autonomy |
-| Overview | Define goal, non-goals, system boundaries |
-| Evidence/source files | List files, repos, schemas, truth sources |
-| Target structure/interfaces | Define outputs and contracts |
-| Approval status | State whether implementation is approved |
-| Milestone chapters | Explain implementation stages |
-| Handoff / recovery | Let another agent resume without guessing |
-| Appendix | Put examples, payloads, report formats |
-| Acceptance Criteria | Single validation authority |
-
-## Stage Document Flow
-
-Use this flow for large projects:
+Use EARS when a requirement must become a test or AC row:
 
 ```text
-Proposal -> Requirements -> Design -> Tasks -> Implementation -> Acceptance
+WHEN <trigger>, THE SYSTEM SHALL <behavior>.
+IF <exception>, THE SYSTEM SHALL <error behavior>.
+WHILE <state>, THE SYSTEM SHALL <continuous behavior>.
+WHERE <scenario>, THE SYSTEM SHALL <specific behavior>.
 ```
 
-For medium projects, keep these as sections in one PRD. For small projects, include at least:
+Map every EARS requirement to AC. For each boundary record `producer -> consumer`, input, output, writes, forbidden actions, and validation. Prefer minimal executable JSON examples when payload shape matters.
 
-```text
-Requirements
-Tasks
-Acceptance Criteria
-```
-
-Map each task to AC IDs:
-
-```markdown
-| Task | Implements AC | Output | Validation |
-|------|---------------|--------|------------|
-| M2-T03 | M2-EG-01, M2-EG-02 | record_verification.py | pytest ... |
-```
-
-## EARS Requirements
-
-Use EARS for requirements that must become tests or AC rows:
-
-```text
-WHEN <触发条件>, THE SYSTEM SHALL <系统行为>.
-IF <异常条件>, THE SYSTEM SHALL <处理行为>.
-WHILE <持续状态>, THE SYSTEM SHALL <持续行为>.
-WHERE <场景/配置>, THE SYSTEM SHALL <特定行为>.
-```
-
-Convert vague requirements:
-
-```text
-Bad: 系统要合理处理记忆冲突。
-Good: WHEN a new memory_unit contradicts an active memory_unit,
-THE SYSTEM SHALL write memory_edges.contradicts AND SHALL NOT delete the old memory_unit.
-```
-
-Every EARS requirement should map to at least one AC row.
-
-## Execution Mode
-
-Declare how the agent should execute:
-
-```text
-Execution Mode: step | batch | phase
-Default: batch
-```
+## Execution Mode and Milestones
 
 | Mode | Use when | Stop point |
 |---|---|---|
-| step | High risk, unstable boundary, user wants tight control | every task |
-| batch | Medium risk, tasks form a small verifiable loop | every batch |
-| phase | Low risk, structure stable, validation is explicit | every milestone |
+| step | High risk or unstable boundary | Every task |
+| batch | Medium risk and a small verifiable loop; default | Every batch |
+| phase | Low risk, stable structure, explicit validation | Every milestone |
 
-For agentic coding work, prefer `batch`: large enough to make progress, small enough to validate.
+Prefer `P0 + M1..Mn`: P0 reviews current state; M1 establishes foundations; later milestones build core paths, integration, and optional enhancements. Preserve an old-to-new mapping table when replacing a prior phase plan.
 
-## Milestone Pattern
+Every task maps to existing AC IDs:
 
-Prefer `P0 + M1..Mn` over many small phases.
-
-```text
-P0: Current-state review / smoke test
-M1: Foundation
-M2: Core write path
-M3: Read/query/context path
-M4: Behavior or UI layer
-M5: Integration and E2E
-M6: Enhancements / non-blocking future work
-```
-
-If converting from an older plan, include a mapping table:
-
-```text
-| Old Phase | New Milestone | Content |
+```markdown
+| Task | Implements AC | Output | Validation |
+|---|---|---|---|
+| M2-T03 | M2-EG-01, M2-EG-02 | `record_verification.py` | `python -m pytest tests/test_record.py -q` |
 ```
 
 ## AI Executor Statement
 
-Include this near the top:
+Include this near the top. The final Acceptance Criteria overview is the only acceptance authority; narrative does not replace it. PRD + AC own scope, implementation, tests, and reports. Unapproved or not-ready work cannot start.
 
-```text
-第 12 章为唯一验收依据。实现说明不替代验收标准。
-PRD + AC 是实现真源。实现、测试、报告必须回连 AC 编号。
-未批准 PRD 不得进入实现。重大范围变更必须先修订 PRD。
-AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心设计决策。
-不得猜测接口、不得臆想业务；不清楚时先查询、确认或标记阻塞。
-优先复用现有接口、文件、工具和模式；新接口或 scope expansion 必须先获 Human confirmation。
-高风险操作必须设置 High-risk confirmation gate，不得为了推进而绕过。
+`G-*` is the authoritative prohibition reference. When facts or intent are unclear, query, seek Human confirmation, or mark honest blocking. Never bypass a prohibition merely to make progress.
 
-执行规范：
-1. 开始某阶段前，先完整读取对应 12.x 小节
-2. 实现前先输出本阶段计划、改动范围、依赖、验收命令
-3. 实现完成后，按 AC 编号逐条自检
-4. 自检输出格式固定为：AC编号 | PASS/FAIL/WARN | 说明
-5. 任一 FAIL 必须在当前阶段修复，不得进入下一阶段
-6. 全局禁止项每个阶段都必须检查
-7. 每阶段报告必须写入指定 reports 目录
-8. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
-```
-
-## Approval Gate
-
-Add an approval block near the top:
-
-```text
-Spec status: draft | approved | superseded
-Approved by:
-Approval date:
-Implementation allowed: yes | no
-Supersedes:
-```
-
-Rules:
-
-- `draft` means discuss and revise; do not implement unless user explicitly says to proceed
-- `approved` means implementation may start
-- Any scope, truth-source, schema, or AC change increments the version and updates revision notes
-- If execution discovers a contradiction, stop at the current milestone and revise the PRD
+1. Before a phase, read its relevant section in the final overview, for example `§AC.P0` or `§AC.M1`.
+2. Before coding, output the phase plan, scope, dependencies, and validation commands.
+3. After implementation, self-check each AC as `AC编号 | PASS/FAIL/WARN | 说明`.
+4. Fix every `FAIL` before proceeding and check all `G-*` items in every phase.
+5. Write the stage report to the specified `reports` directory; every PASS needs Validation evidence, and unknowns require honest blocking.
 
 ## Acceptance Criteria Rules
 
-Put all AC in a final chapter named:
+The last chapter is always `验收标准总览（Acceptance Criteria）`; cite it as `见验收标准总览 §AC.x`.
 
-```text
-## 12 验收标准总览（Acceptance Criteria）
-```
-
-AC rules:
-
-- Use stable IDs: `G-01`, `P0-01`, `M1-DIR-01`, `M2-EG-01`, `M5-DONE-03`
-- Include global forbidden items in `12.0`
-- Every milestone gets its own `12.x`
-- Every milestone has a `DONE` gate
-- Each AC row must include: ID, requirement, verification method, severity
-- Severity must be `FAIL` or `WARN`
-- Any `FAIL` blocks the next milestone
-- Include exact commands where possible
-- Do not bury acceptance criteria only in prose
-- Classify AC when the project is complex: happy path, edge case, error path, non-functional, data integrity, safety
-
-Table format:
+- Use stable IDs such as `G-01`, `P0-DONE`, `M1-DIR-01`, `M2-EG-01`, `M5-DONE-03`.
+- Put global prohibitions in `§AC.0`; give each milestone `§AC.P0`, `§AC.M1`, and so on.
+- Give every milestone a `DONE` gate; any `FAIL` blocks the next milestone.
+- Each AC row contains ID, category, requirement, verification method, and `FAIL` or `WARN` severity.
+- Use exact commands or observable checks; never keep AC only in prose.
+- Use `happy`, `edge`, `error`, `non-functional`, `data-integrity`, and `safety` as applicable.
 
 ```markdown
-| AC | 类别 | 验收项 | 验证方法 | 等级 |
-|----|------|--------|----------|------|
-| M1-DONE-01 | happy | init script 可运行 | 运行命令 exit code 0 | FAIL |
-```
-
-Category names:
-
-```text
-happy
-edge
-error
-non-functional
-data-integrity
-safety
+| AC | Category | Requirement | Verification Method | Severity |
+|---|---|---|---|---|
+| M1-DONE-01 | happy | Init command completes | Run command and confirm exit code 0 | FAIL |
 ```
 
 ## Global Forbidden Items
 
-Use global items for irreversible or architecture-breaking mistakes.
+本表是 Execution Attitude 的可检查化，用于不可逆或破坏架构的错误。
 
-Examples:
-
-```markdown
 | AC | 禁止项 | 等级 |
-|----|--------|------|
+|---|---|---|
 | G-01 | 禁止绕过事实真源 | FAIL |
 | G-02 | 禁止无证据更新长期状态 | FAIL |
 | G-03 | 禁止先做增强层再补核心闭环 | FAIL |
@@ -398,108 +242,54 @@ Examples:
 | G-06 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
 | G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
 | G-08 | 禁止无 Validation evidence 宣称完成 | FAIL |
-```
 
-## Interface Contracts
+## Handoff and Reports
 
-For each boundary, specify:
+M and L documents provide a resumable handoff: current stage, spec status, passed/failed AC, blockers, next command, recovery entry, non-repeatable actions, and related reports.
 
-```text
-producer -> consumer
-input:
-output:
-writes:
-forbidden:
-validation:
-```
+L stage reports add execution time/agent/commit, completed work, files/data/interfaces changed, commands and results, AC self-check, skipped/failed items, handoff, and next-stage input. A report does not turn missing evidence into PASS.
 
-Use JSON payload examples when useful. Keep them minimal and runnable.
+## Style Rules & Common Mistakes
 
-## Handoff and Recovery
+### Style Rules
 
-Every long-running PRD must define a handoff block:
+- Use technical `must / forbidden / input / output / validation` wording.
+- Prefer tables for responsibilities, stages, interfaces, mappings, and AC.
+- Keep examples executable with paths, commands, and expected outcomes.
+- State non-goals and the authoritative final chapter explicitly.
+- Mark optional external tools as enhancements, not blockers.
 
-```text
-当前阶段:
-Spec status:
-已通过 AC:
-未通过 AC:
-当前阻塞:
-下一步命令:
-可恢复入口:
-不得重复执行:
-相关报告:
-```
-
-Use this for multi-agent or interrupted work. The next agent should be able to resume from the handoff without rereading unrelated history.
-
-## Reports
-
-Require stage reports for long-running agent work:
-
-```text
-阶段:
-执行时间:
-执行 agent:
-当前 git commit:
-完成项:
-新增文件:
-修改文件:
-数据库变更:
-接口变更:
-执行命令:
-命令结果:
-AC 自检:
-  AC编号 | PASS/FAIL/WARN | 说明
-未通过项:
-跳过项:
-handoff:
-  当前阶段:
-  下一步命令:
-  可恢复入口:
-  不得重复执行:
-下一阶段输入:
-```
-
-## Style Rules
-
-- Be technical, not decorative
-- Prefer tables for responsibilities, stages, AC, interfaces
-- Keep implementation chapters shorter than validation chapter
-- Use "must / forbidden / output / input / validation" language
-- Keep examples executable
-- State non-goals explicitly
-- Say which chapter is authoritative
-- If external tools are optional, label them enhancement, not blocker
-- Prefer query, confirmation, reuse, and validation over guessing, inventing, broadening, or asserting
-- Keep changes minimal: no speculative design, no adjacent cleanup, no cautious refactor without named purpose and validation
-
-## Common Mistakes
+### Common Mistakes
 
 | Mistake | Fix |
 |---|---|
-| AC scattered across chapters | Move AC into final chapter and reference it from stage chapters |
-| Too many phases | Group into P0 + milestones and keep old mapping |
-| "Should work" wording | Replace with observable command or database/file check |
-| No forbidden list | Add global `G-*` items |
-| Examples without paths | Use absolute or project-root-relative paths |
-| Enhancement blocks core | Mark enhancement as placeholder or later milestone |
-| No approval state | Add `Spec status` and `Implementation allowed` |
-| No AI readiness gate | Add readiness status and "No new design decisions required" |
-| Guessed interfaces or file paths | Add lookup/discovery tasks or mark `AI Readiness: not-ready` |
-| Imagined business behavior | Add Human confirmation requirement or Open Questions |
-| Creates a new interface without checking existing ones | Add `Reuse existing interfaces` discovery and approval gate |
-| Completion claim without evidence | Require `Validation evidence` in task, AC, and report |
-| Broad cleanup hidden inside implementation | Add scope boundary and cautious refactor rules |
-| No architecture constitution | Add truth source, ownership, integrity, forbidden shortcuts |
-| No workflow variant | Declare requirements-first or design-first |
-| No spec maintenance mode | Declare spec-first, spec-anchored, or spec-as-source |
-| No boundary policy | Add Always / Ask First / Never |
-| No handoff | Add recovery block with next command and non-repeatable steps |
-| AC only happy path | Add edge/error/non-functional/data-integrity/safety categories |
-| Tasks do not cite AC | Add task-to-AC mapping |
+| AC scattered across chapters | Move AC to the final overview and reference `§AC.*` |
+| Hard-coded chapter references | Cite stable `§AC.0`, `§AC.P0`, `§AC.M1` IDs |
+| Too many phases | Group into P0 + milestones and retain old mapping |
+| "Should work" wording | Replace with an observable command or state check |
+| No forbidden list | Add global `G-*` rows |
+| Gaps or duplicate G IDs | Keep IDs stable; warn on intentional gaps, fail duplicates |
+| Examples without paths | Use project-root-relative or explicit paths |
+| Non-executable examples | Include command, input, and expected outcome |
+| Enhancement blocks core | Move it to a later milestone or mark optional |
+| No approval state | Add approval metadata and implementation permission |
+| No readiness gate | Add readiness status and unresolved design load |
+| Guessed interface or path | Add discovery work or mark not-ready |
+| Imagined business behavior | Add Human confirmation or Open Questions |
+| New interface without discovery | Name reuse targets and an approval gate |
+| Completion without evidence | Require Validation evidence in tasks, AC, and reports |
+| Broad cleanup hidden in work | Name a narrow, reversible refactor and its validation |
+| No Architecture Constitution | Define truth source, ownership, integrity, and shortcuts |
+| No workflow or lifecycle choice | Declare variant and maintenance mode |
+| No Boundary Policy | Add Always / Ask First / Never |
+| No handoff | Add recovery command and non-repeatable actions |
+| AC covers only happy path | Add edge, error, non-functional, integrity, and safety cases |
+| Tasks do not cite AC | Add a Task -> AC mapping table |
+| Decorative or vague language | Use technical obligations and observable outcomes |
+| Prose hides comparisons | Convert responsibilities and contracts to tables |
 
 ## Resources
 
-- Use `references/prd_template.md` when drafting a new document from scratch.
-- Use `scripts/check_prd_ac.py <file>` for a lightweight structural check after editing.
+- Use `references/prd_template.md` for the L-tier full template; trim it according to Document Tiers.
+- Use `references/example_prd_filled.md` as a complete M-tier example.
+- Run `scripts/check_prd_ac.py <file>` after editing.
