@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL = REPO_ROOT / "SKILL.md"
 TEMPLATE = REPO_ROOT / "references" / "prd_template.md"
 EXAMPLE = REPO_ROOT / "references" / "example_prd_filled.md"
+README = REPO_ROOT / "README.md"
 
 
 def section(text: str, heading: str) -> str:
@@ -148,6 +149,36 @@ class ReferenceDocumentContractTests(unittest.TestCase):
         self.assertIn("Task -> AC", text)
         self.assertIn("阶段报告", text)
         self.assertIn("handoff", text.lower())
+
+
+class ReadmeContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = README.read_text(encoding="utf-8")
+
+    def test_readme_lists_template_example_and_checker(self) -> None:
+        for path in (
+            "references/prd_template.md",
+            "references/example_prd_filled.md",
+            "scripts/check_prd_ac.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, self.text)
+
+    def test_readme_explains_document_tiers(self) -> None:
+        self.assertIn("Document Tiers", self.text)
+        for tier in ("S", "M", "L"):
+            with self.subTest(tier=tier):
+                self.assertRegex(self.text, rf"`{tier}`")
+
+    def test_readme_uses_final_chapter_instead_of_chapter_number(self) -> None:
+        self.assertNotRegex(self.text, r"第\s*12\s*章|§12(?:\.|\b)|→\s*12\.")
+        self.assertRegex(self.text, r"final chapter|最后一章")
+
+    def test_readme_describes_new_checker_guards(self) -> None:
+        for concept in ("verification method", "Task", "DONE", "G-*", "placeholder"):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, self.text)
 
 
 if __name__ == "__main__":

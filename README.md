@@ -33,12 +33,14 @@ If implementation conflicts with PRD/AC, revise the PRD or get approval before c
 | Path | Purpose |
 |------|---------|
 | `SKILL.md` | The full methodology — the guide an agent reads to write a PRD |
-| `references/prd_template.md` | A ready-to-fill PRD skeleton (目录 → AC 总览) |
+| `references/prd_template.md` | The L-tier full template; trim it for S/M documents |
+| `references/example_prd_filled.md` | A complete M-tier personal-ledger CLI example |
 | `scripts/check_prd_ac.py` | Lightweight structural checker for a drafted PRD |
 | `agents/openai.yaml` | Agent interface descriptor (display name, default prompt) |
 
 ## Key Concepts
 
+- **Document Tiers** — select by risk, ambiguity, external side effects, and recovery cost: `S` keeps the minimum executable goal/tasks/AC loop, `M` adds readiness/approval/interfaces/handoff, and `L` uses the full architecture/milestone/report flow.
 - **AI Readiness Gate** — a PRD is `not-ready` if the agent must invent architecture, pick a truth source, guess file locations, define tests, or decide safety boundaries. No implementation until it's `ready`.
 - **Acceptance Criteria (AC)** — stable IDs (`G-01`, `P0-01`, `M2-EG-01`), each row carries requirement + verification method + severity (`FAIL`/`WARN`). Any `FAIL` blocks the next milestone.
 - **Global Forbidden Items (`G-*`)** — irreversible or architecture-breaking mistakes, checked every phase.
@@ -85,15 +87,15 @@ explicitly.
 
 ### Standalone
 
-1. Copy `references/prd_template.md` as the starting point for a new PRD.
-2. Fill it in following `SKILL.md` (readiness gate → milestones → AC总览).
-3. Validate the draft:
+1. Select `S`, `M`, or `L` using the Document Tiers rules in `SKILL.md`.
+2. Use `references/prd_template.md` for the L-tier full shape; trim it for S/M, and consult `references/example_prd_filled.md` for a completed M-tier document.
+3. Validate the filled draft:
 
 ```bash
 python scripts/check_prd_ac.py path/to/your-prd.md
 ```
 
-The checker verifies the mandatory pieces are present: the AI-executor reading statement, the AC总览 chapter, global forbidden items, `FAIL`/`WARN` severities, AC ID patterns, and the AC table header. It prints `PASS` or `FAIL` with the specific gaps — a fast structural gut-check before you hand the PRD to an agent.
+The checker applies tier-specific structural gates, validates AC IDs/categories/severity and every verification method, rejects dangling Task → AC references and missing milestone `DONE` gates, detects malformed or duplicate `G-*` IDs, and warns about intentional G-ID gaps or excessive placeholder residue. It prints `PASS` or `FAIL` with specific findings; older Chinese phrases are recommendations rather than language-locked blockers.
 
 ## Document Shape (at a glance)
 
@@ -102,7 +104,8 @@ Revision note → Directory → AI executor statement → Spec authority
 → AI readiness → Overview (goal / non-goals / boundaries)
 → Evidence files → Target structure & interfaces → Approval status
 → P0 + Milestones (M1..Mn) → Handoff/recovery → Appendix
-→ 12. 验收标准总览 (Acceptance Criteria)  ← the only validation authority
+→ final chapter: 验收标准总览 (Acceptance Criteria)  ← the only validation authority
+  §AC.0 → §AC.P0 → §AC.M1 ...
 ```
 
 ## License
