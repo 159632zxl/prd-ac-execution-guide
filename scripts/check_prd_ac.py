@@ -9,16 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-LEGACY_REQUIRED_PHRASES = [
-    "AI 执行器强制阅读声明",
-    "唯一验收依据",
-    "实现真源",
-    "验收标准总览",
-    "Acceptance Criteria",
-    "全局禁止项",
-    "PASS/FAIL/WARN",
-]
-
 AC_CATEGORIES = {
     "happy",
     "edge",
@@ -28,10 +18,11 @@ AC_CATEGORIES = {
     "safety",
 }
 
-PLACEHOLDER_RE = re.compile(
-    r"<\s*(?:\.\.\.|…)\s*>|\.\.\.|…|\bTODO\b|\bTBD\b|待定",
+EXPLICIT_PLACEHOLDER_RE = re.compile(
+    r"<\s*(?:\.\.\.|…)\s*>|\bTODO\b|\bTBD\b|待定",
     re.IGNORECASE,
 )
+TABLE_ELLIPSIS_RE = re.compile(r"\.\.\.|…")
 AC_ID_RE = re.compile(
     r"^(?:G-\d{2}|(?:P0|M\d+)-[A-Z0-9]+(?:-[A-Z0-9]+)*)$"
 )
@@ -137,6 +128,20 @@ def parse_markdown_tables(lines: list[str], line_offset: int = 0) -> list[Markdo
         tables.append(MarkdownTable(headers, rows))
         index = cursor
     return tables
+
+
+def table_cell_has_placeholder(value: str) -> bool:
+    return bool(EXPLICIT_PLACEHOLDER_RE.search(value) or TABLE_ELLIPSIS_RE.search(value))
+
+
+def count_placeholders(text: str, tables: list[MarkdownTable]) -> int:
+    count = len(EXPLICIT_PLACEHOLDER_RE.findall(text))
+    for table in tables:
+        cells = [*table.headers, *(cell for row in table.rows for cell in row.cells)]
+        for cell in cells:
+            without_explicit = EXPLICIT_PLACEHOLDER_RE.sub("", cell)
+            count += len(TABLE_ELLIPSIS_RE.findall(without_explicit))
+    return count
 
 
 def has_heading(lines: list[str], pattern: str) -> bool:
@@ -313,7 +318,7 @@ def validate_common_structure(
                 found_categories.add(category)
             if not requirement:
                 failures.append(f"Empty AC requirement for {ac_id}")
-            if not verification or PLACEHOLDER_RE.search(verification):
+            if not verification or table_cell_has_placeholder(verification):
                 failures.append(f"Missing or placeholder verification method for {ac_id}")
             if severity not in {"FAIL", "WARN"}:
                 failures.append(f"Invalid AC severity for {ac_id}: {severity or '<empty>'}")
@@ -345,13 +350,9 @@ def validate_common_structure(
                 if reference not in defined_ids:
                     append_unique(failures, f"Undefined AC reference: {reference} (task {task})")
 
-    placeholder_count = len(PLACEHOLDER_RE.findall(text))
+    placeholder_count = count_placeholders(text, all_tables)
     if placeholder_count > 10:
         warnings.append(f"Found {placeholder_count} placeholder tokens; complete the draft before approval")
-
-    if not re.search(r"\bWARN\b", text):
-        warnings.append("No WARN severity found")
-
 
 def validate_tier(
     text: str,
@@ -427,10 +428,6 @@ def check_document(text: str) -> tuple[list[str], list[str]]:
 
     validate_common_structure(text, visible_lines, tier, failures, warnings)
     validate_tier(text, visible_lines, tier, failures)
-
-    for phrase in LEGACY_REQUIRED_PHRASES:
-        if phrase not in text:
-            warnings.append(f"Missing legacy recommended phrase: {phrase}")
 
     return failures, warnings
 

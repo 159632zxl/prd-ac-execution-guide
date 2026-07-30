@@ -182,7 +182,19 @@ class CheckerTests(unittest.TestCase):
         result = self.run_checker(build_document())
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("PASS", result.stdout)
+        self.assertEqual("PASS", result.stdout.strip())
+
+    def test_narrative_ellipses_do_not_count_as_placeholders(self) -> None:
+        ellipses = "\n".join(
+            f"Narrative note {index}: continue... and pause… before the next step."
+            for index in range(11)
+        )
+        document = build_document().replace("## Tasks", ellipses + "\n\n## Tasks")
+
+        result = self.run_checker(document)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("PASS", result.stdout.strip())
 
     def test_missing_document_tier_is_backward_compatible_warning(self) -> None:
         document = build_document().replace("Document Tier: S\n", "")
@@ -322,6 +334,17 @@ class CheckerTests(unittest.TestCase):
     def test_more_than_ten_placeholders_is_warning(self) -> None:
         placeholders = "\n".join(f"Draft note {index}: TODO" for index in range(11))
         document = build_document().replace("## Tasks", placeholders + "\n\n## Tasks")
+
+        result = self.run_checker(document)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("WARN", result.stdout)
+        self.assertIn("11 placeholder", result.stdout)
+
+    def test_table_ellipses_count_as_placeholders(self) -> None:
+        rows = "\n".join("| ... |" if index % 2 else "| … |" for index in range(11))
+        notes_table = f"| Draft note |\n|---|\n{rows}"
+        document = build_document().replace("## Tasks", notes_table + "\n\n## Tasks")
 
         result = self.run_checker(document)
 
