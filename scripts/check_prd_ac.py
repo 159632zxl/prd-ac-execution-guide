@@ -39,6 +39,11 @@ AC_REFERENCE_RE = re.compile(
     r"\b(?:G-\d+|(?:P0|M\d+)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b"
 )
 HEADING_RE = re.compile(r"^##(?!#)\s+(.+?)\s*$")
+SECTION_NUMBER_RE = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+")
+ACCEPTANCE_TITLE_RE = re.compile(
+    r"^(?:验收标准总览(?:[（(]\s*Acceptance Criteria\s*[）)])?|Acceptance Criteria)$",
+    re.IGNORECASE,
+)
 
 
 HEADER_ALIASES = {
@@ -151,7 +156,7 @@ def find_acceptance_section(lines: list[str]) -> tuple[int | None, bool]:
     matches = [
         index
         for index, title in level_two
-        if re.search(r"Acceptance Criteria|验收标准总览", title, re.IGNORECASE)
+        if ACCEPTANCE_TITLE_RE.fullmatch(SECTION_NUMBER_RE.sub("", title))
     ]
     if not matches:
         return None, False
@@ -166,7 +171,8 @@ def find_milestones(lines: list[str]) -> set[str]:
         match = HEADING_RE.match(line)
         if not match:
             continue
-        milestone = re.search(r"\b(P0|M\d+)\b", match.group(1), re.IGNORECASE)
+        title = SECTION_NUMBER_RE.sub("", match.group(1))
+        milestone = re.match(r"^(P0|M\d+)(?=\s|[:：.\-–—]|$)", title, re.IGNORECASE)
         if milestone:
             milestones.add(milestone.group(1).upper())
     return milestones

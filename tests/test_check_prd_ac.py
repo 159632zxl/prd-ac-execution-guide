@@ -240,6 +240,39 @@ class CheckerTests(unittest.TestCase):
 
         self.assert_fails_with(document, "Missing DONE AC for milestone M1")
 
+    def test_mapping_heading_does_not_create_a_milestone(self) -> None:
+        document = build_document().replace(
+            "## Acceptance Criteria",
+            "## 7.5 旧计划 M9 阶段映射说明\n\nM9 maps to M2.\n\n## Acceptance Criteria",
+        )
+
+        result = self.run_checker(document)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("Missing DONE AC for milestone M9", result.stdout)
+
+    def test_numbered_and_bilingual_acceptance_headings_are_accepted(self) -> None:
+        headings = (
+            "## 12 验收标准总览（Acceptance Criteria）",
+            "## 12. 验收标准总览(Acceptance Criteria)",
+            "## 12.1 Acceptance Criteria",
+        )
+
+        for heading in headings:
+            with self.subTest(heading=heading):
+                document = build_document().replace("## Acceptance Criteria", heading)
+                result = self.run_checker(document)
+
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_heading_that_only_mentions_acceptance_criteria_is_rejected(self) -> None:
+        document = build_document().replace(
+            "## Acceptance Criteria",
+            "## Notes about Acceptance Criteria",
+        )
+
+        self.assert_fails_with(document, "Missing final Acceptance Criteria section")
+
     def test_duplicate_global_id_fails(self) -> None:
         document = build_document().replace(
             "| G-02 | Do not claim completion without evidence | FAIL |",
