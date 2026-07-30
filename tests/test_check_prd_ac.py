@@ -101,6 +101,58 @@ Related reports: `reports/P0.md`
     return document.replace("## Tasks", addition + "\n## Tasks")
 
 
+def with_l_requirements(document: str) -> str:
+    document = with_m_requirements(document)
+    l_tier_sections = """
+## Architecture Constitution
+
+Truth source: `data/ledger.jsonl`
+Ownership boundaries: the CLI validates input and appends ledger entries.
+Data integrity rules: existing entries remain immutable.
+
+## Boundary Policy
+
+| Always | Ask First | Never |
+|--------|-----------|-------|
+| Run validation commands | Change the truth-source schema | Rewrite existing entries |
+
+Workflow Variant: requirements-first
+Spec Maintenance Mode: spec-anchored
+Execution Mode: batch
+
+Proposal -> Requirements -> Design -> Tasks -> Implementation -> Acceptance
+"""
+    document = document.replace("## Tasks", l_tier_sections + "\n## Tasks")
+    document = document.replace(
+        "| P0-T01 | P0-DONE | `ledger.py` | `python -m unittest` |",
+        "| P0-T01 | P0-DONE | `ledger.py` | `python -m unittest` |\n"
+        "| M1-T01 | M1-DONE | `ledger.py` | `python -m unittest` |",
+    )
+    document = document.replace(
+        "## Acceptance Criteria",
+        """## M1 Foundation
+
+Implement the validated append-only write path.
+
+## Stage report
+
+Write the completed stage report to `reports/M1.md`.
+
+## Acceptance Criteria""",
+    )
+    document = document.replace(
+        "| P0-ERR-01 | error | Invalid amounts are rejected | Run the invalid-amount test and inspect the error | FAIL |",
+        """| P0-ERR-01 | error | Invalid amounts are rejected | Run the invalid-amount test and inspect the error | FAIL |
+
+### §AC.M1 M1 acceptance
+
+| AC | Category | Requirement | Verification Method | Severity |
+|----|----------|-------------|---------------------|----------|
+| M1-DONE | happy | Append-only write path is complete | Run python -m unittest and confirm exit code 0 | FAIL |""",
+    )
+    return document
+
+
 class CheckerTests(unittest.TestCase):
     def run_checker(self, document: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -236,6 +288,12 @@ class CheckerTests(unittest.TestCase):
 
     def test_complete_m_tier_document_passes(self) -> None:
         result = self.run_checker(with_m_requirements(build_document("M")))
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("PASS", result.stdout)
+
+    def test_complete_l_tier_document_passes(self) -> None:
+        result = self.run_checker(with_l_requirements(build_document("L")))
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("PASS", result.stdout)
