@@ -97,6 +97,10 @@ python scripts/check_prd_ac.py path/to/your-prd.md
 
 The checker applies tier-specific structural gates, validates AC IDs/categories/severity and every verification method, rejects dangling Task → AC references and missing milestone `DONE` gates, detects malformed or duplicate `G-*` IDs, and warns about intentional G-ID gaps or excessive placeholder residue. It prints `PASS` or `FAIL` with specific findings; older Chinese phrases are recommendations rather than language-locked blockers.
 
+The checker validates structural completeness, cross-reference integrity, and
+gate relationships. It does not replace human review of AC semantics,
+business correctness, or risk decisions.
+
 ## Document Shape (at a glance)
 
 ```text

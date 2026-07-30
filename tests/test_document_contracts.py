@@ -180,6 +180,19 @@ class ReadmeContractTests(unittest.TestCase):
             with self.subTest(concept=concept):
                 self.assertIn(concept, self.text)
 
+    def test_readme_defines_checker_review_boundary(self) -> None:
+        for concept in (
+            "structural completeness",
+            "cross-reference integrity",
+            "gate relationships",
+            "does not replace human review",
+            "AC semantics",
+            "business correctness",
+            "risk decisions",
+        ):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
