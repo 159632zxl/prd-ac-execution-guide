@@ -31,7 +31,7 @@ If implementation conflicts with PRD/AC, revise the PRD or get approval before c
 ## What's Inside
 
 | Path | Purpose |
-|------|---------|
+| ------ | --------- |
 | `SKILL.md` | The full methodology — the guide an agent reads to write a PRD |
 | `references/prd_template.md` | The L-tier full template; trim it for S/M documents |
 | `references/example_prd_filled.md` | A complete M-tier personal-ledger CLI example |

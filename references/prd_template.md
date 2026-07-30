@@ -7,6 +7,7 @@
 **<Codename> v1.0 · <YYYY-MM-DD> · 供 Codex / Claude 执行**
 
 > **v1.0 修订说明**
+>
 > 1. ...
 
 ```text
@@ -37,6 +38,7 @@ Supersedes:
 9. [M5 端到端验收](#9-m5-端到端验收)
 10. [增强层接入顺序](#10-增强层接入顺序)
 11. [附录](#11-附录)
+
 - [验收标准总览（Acceptance Criteria）](#验收标准总览acceptance-criteria) ← **AI 执行器必读，唯一验收依据**
 
 ---
@@ -50,6 +52,7 @@ Supersedes:
 > `G-*` 是全局禁止项的权威引用；不清楚时先查询、确认或标记阻塞，不得为了推进而绕过。
 >
 > **执行规范：**
+>
 > 1. 开始某阶段前，先完整读取验收标准总览中对应的 `§AC.*` 小节
 > 2. 实现前先输出本阶段计划、改动范围、依赖、验收命令
 > 3. 实现完成后逐条自检，格式为：`AC编号 | PASS/FAIL/WARN | 说明`
@@ -84,7 +87,7 @@ scope 边界:
 ## 0.0 Execution Attitude
 
 | 原则 | PRD 约束 |
-|------|----------|
+| ------ | ---------- |
 | 认真查询 | 不得猜测接口、路径、schema、命令；不清楚则列入 Blocking ambiguities |
 | 寻求确认 | 模糊需求、业务规则、验收口径必须 Human confirmation |
 | 人类确认 | 高风险操作、scope expansion、新接口必须先获批准 |
@@ -111,7 +114,7 @@ Validation evidence:
 ```
 
 | Item | Requirement | Status |
-|------|-------------|--------|
+| ------ | ------------- | -------- |
 | Goal | One concrete outcome | PASS/FAIL |
 | Non-goals | Scope exclusions explicit | PASS/FAIL |
 | Truth source | Data/source of record named | PASS/FAIL |
@@ -169,7 +172,7 @@ Spec Maintenance Mode: spec-first | spec-anchored | spec-as-source
 ```
 
 | Mode | 含义 |
-|------|------|
+| ------ | ------ |
 | spec-first | spec 驱动一次实现，之后可归档 |
 | spec-anchored | spec 长期作为维护锚点，行为变化时同步更新 |
 | spec-as-source | spec 作为可执行源工件 |
@@ -182,7 +185,7 @@ Default: batch
 ```
 
 | Mode | 使用条件 | 停顿点 |
-|------|----------|--------|
+| ------ | ---------- | -------- |
 | step | 高风险、边界不稳、用户要逐步确认 | 每个 task |
 | batch | 中等风险、可形成小闭环 | 每个 batch |
 | phase | 低风险、结构稳定、验收明确 | 每个 milestone |
@@ -220,7 +223,7 @@ Refactor limits:
 ### 2.4 Boundary Policy
 
 | Always | Ask First | Never |
-|--------|-----------|-------|
+| -------- | ----------- | ------- |
 | Run validation commands | Change truth-source schema | Delete historical data |
 | Reuse existing interfaces | Add external dependencies | Bypass AC gates |
 | Record Validation evidence | scope expansion / high-risk operation | Guess interfaces or invent business rules |
@@ -350,7 +353,7 @@ Spec status:
 ### §AC.0 全局禁止项
 
 | AC | 禁止项 | 等级 |
-|----|--------|------|
+| ---- | -------- | ------ |
 | G-01 | 禁止 ... | FAIL |
 | G-02 | 禁止未查询即猜测接口、路径、schema 或命令 | FAIL |
 | G-03 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
@@ -367,7 +370,7 @@ Spec status:
 ### §AC.M1 M1 验收
 
 | AC | 类别 | 验收项 | 验证方法 | 等级 |
-|----|------|--------|----------|------|
+| ---- | ------ | -------- | ---------- | ------ |
 | M1-DONE-01 | happy | ... | ... | FAIL |
 | M1-EDGE-01 | edge | ... | ... | FAIL |
 | M1-ERR-01 | error | ... | ... | FAIL |

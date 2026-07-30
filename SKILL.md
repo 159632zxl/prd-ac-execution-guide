@@ -14,7 +14,7 @@ Use this for systems, refactors, multi-stage implementation plans, agent handoff
 ## Terminology
 
 | Term | 本文约定 |
-|---|---|
+| --- | --- |
 | Validation evidence | 验证证据：命令、可观察结果、产物或明确记录的缺口 |
 | handoff | 交接块：供下一执行者无猜测地恢复工作 |
 | readiness gate | 就绪门：判断实现是否还需要补核心设计决策 |
@@ -75,7 +75,7 @@ Do not guess missing interfaces or business rules. A PRD with guessed contracts,
 Choose the tier by risk, ambiguity, external side effects, and recovery cost, not by project size.
 
 | Tier | Use when | Required content |
-|---|---|---|
+| --- | --- | --- |
 | S | Low risk, reversible, no new core design decisions | Goal, non-goals, boundary and truth source, tasks, AC table, validation |
 | M | Moderate ambiguity, coordination, or external effects | S + full readiness gate, approval, interfaces/boundaries, handoff |
 | L | High risk, costly recovery, broad effects, or long multi-stage execution | M + Architecture Constitution, Boundary Policy, full milestones, stage reports, complete `Proposal -> Requirements -> Design -> Tasks -> Implementation -> Acceptance` flow |
@@ -115,7 +115,7 @@ Blocking ambiguities:
 ```
 
 | Check | Ready only when |
-|---|---|
+| --- | --- |
 | Scope | Goal and non-goals are explicit |
 | Authority | Truth source, ownership, and external boundaries are named |
 | Contracts | Inputs, outputs, writes, forbidden actions, and reuse targets are known or discoverable |
@@ -149,7 +149,7 @@ Spec Maintenance Mode: spec-first | spec-anchored | spec-as-source
 ```
 
 | Setting | Choice |
-|---|---|
+| --- | --- |
 | requirements-first | Need is clear; architecture remains undecided |
 | design-first | Existing architecture or system constraints dominate; preferred for refactors |
 | spec-first | Drives one implementation pass, then may become historical |
@@ -161,7 +161,7 @@ Spec Maintenance Mode: spec-first | spec-anchored | spec-as-source
 Use an Always / Ask First / Never table when `G-*` alone is too coarse:
 
 | Always | Ask First | Never |
-|---|---|---|
+| --- | --- | --- |
 | Run validation commands | Change truth-source schema | Delete historical data |
 | Reuse existing interfaces | Add external dependencies | Bypass AC gates |
 | Record Validation evidence | Scope expansion / high-risk operation | Guess interfaces or invent business rules |
@@ -184,7 +184,7 @@ Map every EARS requirement to AC. For each boundary record `producer -> consumer
 ## Execution Mode and Milestones
 
 | Mode | Use when | Stop point |
-|---|---|---|
+| --- | --- | --- |
 | step | High risk or unstable boundary | Every task |
 | batch | Medium risk and a small verifiable loop; default | Every batch |
 | phase | Low risk, stable structure, explicit validation | Every milestone |
@@ -233,7 +233,7 @@ The last chapter is always `验收标准总览（Acceptance Criteria）`; cite i
 本表是 Execution Attitude 的可检查化，用于不可逆或破坏架构的错误。
 
 | AC | 禁止项 | 等级 |
-|---|---|---|
+| --- | --- | --- |
 | G-01 | 禁止绕过事实真源 | FAIL |
 | G-02 | 禁止无证据更新长期状态 | FAIL |
 | G-03 | 禁止先做增强层再补核心闭环 | FAIL |
@@ -262,7 +262,7 @@ L stage reports add execution time/agent/commit, completed work, files/data/inte
 ### Common Mistakes
 
 | Mistake | Fix |
-|---|---|
+| --- | --- |
 | AC scattered across chapters | Move AC to the final overview and reference `§AC.*` |
 | Hard-coded chapter references | Cite stable `§AC.0`, `§AC.P0`, `§AC.M1` IDs |
 | Too many phases | Group into P0 + milestones and retain old mapping |

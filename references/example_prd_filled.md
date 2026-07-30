@@ -1,6 +1,6 @@
 # 示例：M 级项目 · 个人记账 CLI
 
-**Pocket Ledger v1.0 · 2026-07-30 · 供 Codex / Claude 执行**
+Pocket Ledger v1.0 · 2026-07-30 · 供 Codex / Claude 执行
 
 > 本文展示一个字段完整、可直接交给 AI 执行器的 M 级 PRD。
 
@@ -41,7 +41,7 @@ Validation evidence: 命令输出、退出码、临时账本内容
 ```
 
 | Item | Requirement | Status |
-|---|---|---|
+| --- | --- | --- |
 | Goal | 新增和读取个人收支记录 | PASS |
 | Non-goals | 同步、GUI、多人账户明确排除 | PASS |
 | Truth source | JSONL 文件唯一真源 | PASS |
@@ -84,8 +84,8 @@ WHEN list 读取有效账本, THE SYSTEM SHALL 按原顺序输出全部记录。
 ### 2.2 CLI interface
 
 | Command | Input | Output | Writes |
-|---|---|---|---|
-| `add` | `--date --category --amount-cents --note --file` | 新记录 ID | 追加一行 JSON |
+| --- | --- | --- | --- |
+| `add` | date, category, cents, note, file | 记录 ID | 追加 JSON |
 | `list` | `--file` | 表头和账目行 | 无 |
 
 ```text
@@ -97,7 +97,7 @@ validation: unit tests plus CLI smoke commands against a temporary file
 ## 3 Task -> AC 映射
 
 | Task | Implements AC | Output | Validation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | P0-T01 | P0-DONE, P0-SAFE-01 | 当前状态和命令契约记录 | 检查 Python 版本与目标路径 |
 | M1-T01 | M1-DI-01 | JSONL 追加与读取函数 | 运行 repository 单元测试 |
 | M1-T02 | M1-ERR-01, M1-DONE | 参数校验函数 | 运行非法金额测试 |
@@ -108,7 +108,7 @@ validation: unit tests plus CLI smoke commands against a temporary file
 
 确认 Python 3.11+ 可用，目标目录无同名未纳管文件，并记录 `ledger.py --help` 的预期命令。不得创建实现文件，直到路径检查完成。
 
-Validation: `python --version` 成功，`Get-ChildItem ledger.py,tests,data -ErrorAction SilentlyContinue` 的结果写入阶段报告。
+Validation: `python --version` 成功；目标路径检查的结果写入阶段报告。
 
 ## 5 M1 Foundation
 
@@ -162,7 +162,7 @@ Spec status: approved
 ### §AC.0 全局禁止项
 
 | AC | 禁止项 | 等级 |
-|---|---|---|
+| --- | --- | --- |
 | G-01 | 禁止覆盖、截断或重写既有账本 | FAIL |
 | G-02 | 禁止使用浮点数保存金额 | FAIL |
 | G-03 | 禁止静默跳过损坏记录 | FAIL |
@@ -172,14 +172,14 @@ Spec status: approved
 ### §AC.P0 P0 验收
 
 | AC | Category | Requirement | Verification Method | Severity |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | P0-DONE | happy | 环境、路径和命令契约已确认 | 检查 reports/P0.md 含版本、路径和契约结果 | FAIL |
 | P0-SAFE-01 | safety | P0 不改动用户账本 | 对比执行前后账本哈希保持一致 | FAIL |
 
 ### §AC.M1 M1 验收
 
 | AC | Category | Requirement | Verification Method | Severity |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | M1-DONE | happy | 合法记录可追加并按原值读取 | 运行 repository 单元测试并确认全部通过 | FAIL |
 | M1-ERR-01 | error | 非正整数金额不写入 | 运行非法金额测试并核对文件字节数不变 | FAIL |
 | M1-DI-01 | data-integrity | 每次写入仅追加一行有效 JSON | 连续写入两条并逐行执行 json.loads | FAIL |
@@ -187,8 +187,8 @@ Spec status: approved
 ### §AC.M2 M2 验收
 
 | AC | Category | Requirement | Verification Method | Severity |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | M2-DONE | happy | add 后 list 显示同一条记录 | 对临时文件运行 add、list 并比对字段 | FAIL |
 | M2-EDGE-01 | edge | 空账本 list 成功且无数据行 | 对空文件运行 list 并确认退出码 0 | FAIL |
-| M2-NF-01 | non-functional | 全套测试在 10 秒内完成 | 计时运行 python -m unittest -v | WARN |
+| M2-NF-01 | non-functional | 测试在 10 秒内完成 | 计时运行 unittest | WARN |
 | M2-SAFE-01 | safety | 损坏行阻止读取且不改文件 | 注入损坏行后运行 list 并比较文件哈希 | FAIL |
