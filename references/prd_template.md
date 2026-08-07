@@ -50,14 +50,17 @@ Supersedes:
 >
 > **执行规范：**
 > 1. 开始某阶段前，先读取 manifest、当前 Stage Packet 和其引用的上下文；不得强制完整阅读整个 PRD
-> 2. 实现前先输出本阶段计划、改动范围、依赖、验收命令
-> 3. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
-> 4. 实现完成后，按 AC 编号逐条自检，并完成 post-change Code Network Gate
-> 5. 自检输出格式固定为：`AC编号 | PASS/FAIL/WARN | 说明`
-> 6. 任一 `FAIL`、Ghost Interface、Orphan Node 或未闭合 contract 必须在当前阶段修复，不得进入下一阶段
-> 7. `G-*` 全局禁止项每个阶段都必须检查
-> 8. 每阶段报告必须写入指定 reports 目录
-> 9. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
+> 2. 先按 `^## ` 建立章节清单，并把每个章节映射到 EARS、节点/边和 AC；遗漏必须显式延期或阻塞
+> 3. 实现前先输出本阶段计划、改动范围、依赖、验收命令
+> 4. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
+> 5. 持久化或状态任务必须同时确认 writer、reader、状态消费者、枚举集合和运行时可见性检查
+> 6. 每个最小任务完成后重新索引，更新 graph snapshot/diff、code-map、coverage 和 handoff，再按 AC 编号自检
+> 7. 实现完成后完成 post-change Code Network Gate；`implemented` 不得直接标为 `verified`
+> 8. 自检输出格式固定为：`AC编号 | PASS/FAIL/WARN | 说明`
+> 9. 任一 `FAIL`、Ghost Interface、Orphan Node、未闭合读写、不可达状态或未闭合 contract 必须在当前阶段修复，不得进入下一阶段
+> 10. `G-*` 全局禁止项每个阶段都必须检查
+> 11. 每阶段报告必须写入指定 reports 目录
+> 12. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
 
 ---
 
@@ -110,7 +113,10 @@ changes/<change-id>/
   requirements.md
   design.md
   contracts/
+  coverage.md
   code-map.md
+  graph-snapshot.json
+  graph-diff.json
   tasks.md
   verification.md
   handoff.md
@@ -122,7 +128,55 @@ changes/<change-id>/
 - 每个阶段只读取 manifest、当前 Stage Packet 和明确引用的上下文，不强制完整阅读整个变更包。
 - 每个任务必须声明需要读取的 Stage Packet；阶段切换时更新 manifest。
 - 任务使用 `task graph` 和 `dependency graph` 表达执行顺序与代码关系，不用孤立的文件清单替代。
+- `coverage.md` 必须按 `^## ` 标题边界记录原始章节到 EARS、节点/边和 AC 的覆盖关系；延期或不适用必须写原因。
+- `graph-snapshot.json`、`graph-diff.json` 必须符合 `references/graph-evidence.schema.json`，并在每个最小任务后更新。
 - 单文档只适用于小型、单边界、能在一个上下文负载内完成的工作。
+
+---
+
+## 0.3 Graph Evidence and Provider Composition
+
+使用现有代码智能工具作为 Provider，由本变更包负责证据标准化；不合并多个图数据库，也不把语义推断直接当作代码事实。
+
+```text
+Structural observed graph: code-review-graph / LSP / SCIP
+Entity-level change evidence: sem / repository-native diff
+Semantic suggestions: Understand Anything, must be independently verified
+Fallback high-risk audit: codebase-memory / CodeQL / Joern, one selected source of truth
+```
+
+```text
+Observed Graph: 当前仓库和运行时已验证事实
+Target Graph: 需求和 AC 规划出的目标节点/边
+Change Graph: baseline SHA 与 current SHA 的节点/边差异
+```
+
+每个节点和边必须有稳定 ID、kind、status、provider、git_sha、source_anchor（适用时）、confidence、coverage、freshness 和 verification_evidence。状态为：
+
+```text
+planned | observed | changed | implemented | verified | blocked | unresolved | removed
+```
+
+`implemented` 不等于 `verified`。动态事件、委托、框架注册等静态工具无法证明的边必须保持 `unresolved`。
+
+### Source Coverage
+
+先按 `^## ` 标题边界生成完整章节清单，再在 `coverage.md` 中逐项映射到 EARS、节点/边和 AC。每项只能是 `covered`、`deferred` 或 `not-applicable`；`covered` 必须有 requirement/AC 引用，后两者必须有显式理由。
+
+### Reader/Writer and Runtime Visibility
+
+每张表、字段、缓存或事件必须记录 writer、reader、状态消费者和枚举值。验收必须同时包含：
+
+```text
+structure exists
++ writer produces expected data/state
++ reader visibility query or event assertion succeeds
++ data-integrity and safety checks succeed
+```
+
+预期为空时必须写 `intentionally empty`、原因和 owning milestone。状态没有消费者、schema 枚举不一致、只有结构测试没有运行时证据，都属于 FAIL。
+
+State reachability: 每个写入状态必须有下游消费者或显式终态声明。
 
 ---
 
@@ -142,6 +196,11 @@ Change Packet:
 Stage Packet:
 Context Provider:
 Code Network status: verified | unresolved | blocked
+Graph snapshot:
+Graph diff / baseline SHA:
+Source coverage:
+Writer / reader closure:
+Runtime visibility:
 ```
 
 | Item | Requirement | Status |
@@ -156,7 +215,11 @@ Code Network status: verified | unresolved | blocked
 | Confirmation gates | High-risk confirmation and business approval boundaries named | PASS/FAIL |
 | Stage packet | Current stage has bounded reading inputs and a recovery pointer | PASS/FAIL |
 | Code network | Changed symbols, edges, impact, and provider evidence are recorded | PASS/FAIL |
+| Source coverage | Every `##` source section is mapped or explicitly deferred/N/A | PASS/FAIL |
 | Contract closure | Every changed boundary has producer, consumer, data shape, error path, and validation | PASS/FAIL |
+| Reader/writer closure | Persisted objects have writer, reader, state consumers, and runtime visibility evidence | PASS/FAIL |
+| Enum completeness | Design and schema enum sets match or the difference is approved | PASS/FAIL |
+| Review verification | Findings and rejection premises have independent evidence | PASS/FAIL |
 | Tasks | Each task maps to AC IDs | PASS/FAIL |
 | Tests | Validation commands or observable checks exist | PASS/FAIL |
 | Expected result | Final artifact or state is named | PASS/FAIL |
@@ -187,6 +250,8 @@ Code Network status: verified | unresolved | blocked
 ```text
 Explore / Current-state map -> Proposal -> Requirements -> Design -> Code map / Contracts -> Task graph -> Implementation -> Verify -> Archive
 ```
+
+涉及长源文档时，先按 `^## ` 建立完整章节清单，再进入 Requirements；不能按固定行数切分后假设章节完整。
 
 ### 1.5 Workflow Variant
 
@@ -287,6 +352,9 @@ Tests:
 Pre-change impact:
 Unresolved edges:
 Context Provider:
+Graph artifacts: graph-snapshot.json / graph-diff.json
+Storage contracts: writer(s) / reader(s) / state consumers
+Runtime visibility:
 ```
 
 ### 3.3 核心接口
@@ -300,6 +368,17 @@ edge kind:
 input:
 output:
 writes:
+readers / consumers:
+state values:
+state semantics:
+state producers:
+state consumers:
+enum values:
+schema enum values:
+expected runtime state: non-empty | intentionally empty | not applicable
+runtime evidence:
+intentional empty reason:
+intentional empty milestone:
 error path:
 forbidden:
 pre-change evidence:
@@ -335,14 +414,17 @@ contract closure: producer + consumer + data shape + error path + validation
 ```text
 manifest.md:
 Stage Packet:
+coverage.md:
 code-map.md:
 contracts/:
+graph-snapshot.json:
+graph-diff.json:
 Context Provider:
 Unresolved edges:
 Pre-change Code Network Gate: PASS | FAIL | BLOCKED
 ```
 
-P0 未通过前不得写实现代码。若边、符号、消费者或数据形状无法从代码库证实，必须保持 `BLOCKED`，不得用文字补齐。
+P0 未通过前不得写实现代码。若章节、边、符号、writer、reader、状态消费者或数据形状无法从代码库/运行时证实，必须保持 `BLOCKED`，不得用文字补齐。
 
 ---
 
@@ -385,6 +467,11 @@ WHERE <场景/配置>, THE SYSTEM SHALL <特定行为>.
 接口变更:
 Context Provider:
 Code map / graph snapshot:
+Graph diff / baseline SHA:
+Source coverage:
+Writer / reader closure:
+State reachability:
+Runtime visibility:
 Pre-change impact:
 Post-change impact:
 执行命令:
@@ -422,6 +509,9 @@ handoff:
 | G-06 | 禁止用强制完整阅读长 PRD 替代 Stage Packet | FAIL |
 | G-07 | 禁止用纯文字接口描述替代实际符号、边和验证证据 | FAIL |
 | G-08 | 禁止提交 Ghost Interface、Orphan Node 或未闭合 contract | FAIL |
+| G-09 | 禁止只验证表/接口存在而不验证 writer、runtime data 和 reader visibility | FAIL |
+| G-10 | 禁止静默丢弃源文档章节、状态值或枚举值 | FAIL |
+| G-11 | 禁止未经独立证据验证评审发现、否决理由或低覆盖率结论 | FAIL |
 
 ### 12.1 P0 验收
 
@@ -430,6 +520,9 @@ handoff:
 | P0-01 | happy | ... | ... | FAIL |
 | P0-NET-01 | data-integrity | code-map 已记录目标符号、producer/consumer、边和未解析项 | 检查 `code-map.md` 和 Context Provider 结果 | FAIL |
 | P0-NET-02 | safety | pre-change Code Network Gate 已通过 | 检查所有目标边有 source anchor 和 impact evidence | FAIL |
+| P0-COV-01 | data-integrity | `coverage.md` 已覆盖所有 `##` 源章节，延期/N/A 有理由 | 对比章节清单与 coverage 表 | FAIL |
+| P0-RW-01 | data-integrity | 每个持久化对象有 writer、reader、状态消费者或明确 milestone | 检查 contracts、graph edges 和状态表 | FAIL |
+| P0-RUN-01 | data-integrity | 结构检查、writer 数据证据和 reader visibility 成对存在 | 执行流水线并查询数据/读取结果 | FAIL |
 | P0-DONE | happy | ... | ... | FAIL |
 
 ### 12.2 M1 验收
@@ -442,6 +535,8 @@ handoff:
 | M1-NF-01 | non-functional | ... | ... | WARN |
 | M1-DI-01 | data-integrity | ... | ... | FAIL |
 | M1-SAFE-01 | safety | ... | ... | FAIL |
+| M1-STATE-01 | data-integrity | 每个写入状态可被下游查询或显式标记为终态 | 状态可达性查询/测试 | FAIL |
+| M1-ENUM-01 | data-integrity | 设计枚举与 schema CHECK 集合一致 | 比较枚举定义和 schema | FAIL |
 
 ### 12.x 最终验收命令
 

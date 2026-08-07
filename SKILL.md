@@ -59,7 +59,10 @@ changes/<change-id>/
   requirements.md      # EARS requirements and scenarios
   design.md             # architecture decisions and trade-offs
   contracts/            # producer/consumer contracts and data shapes
+  coverage.md           # source-section to requirement/AC coverage
   code-map.md           # verified symbols, files, edges, and impact
+  graph-snapshot.json   # normalized Observed or Target Graph evidence
+  graph-diff.json       # baseline/current Change Graph evidence
   tasks.md              # dependency-aware vertical slices
   verification.md       # commands, evidence, and post-change checks
   handoff.md            # recovery state for the next agent
@@ -71,9 +74,80 @@ Rules:
 - Each artifact has one job. Split an artifact when it mixes unrelated domains or cannot fit the current context budget.
 - At the start of a stage, read the manifest, the current `Stage Packet`, and only the referenced context artifacts. Do not force full-document reading of the entire packet.
 - Every task names its required Stage Packet and updates the manifest when the stage, blocker, or next command changes.
+- `coverage.md` is the chapter inventory. Split source material at `^## ` boundaries, record every section, and mark each as covered, deferred with a reason, or not-applicable with a reason. Silent omission is a gate failure.
 - A single PRD is allowed for small work only when it remains within one focused context load and still contains the same requirements, contracts, tasks, and verification roles.
 
 The full packet may be reviewed by a human, but execution must use progressive disclosure. Reading more text is not a substitute for a current, bounded context packet.
+
+## Graph Evidence and Provider Composition
+
+Use existing providers behind a small control layer owned by the Change Packet. Do not merge multiple graph databases or treat an LLM-generated relationship as a verified code edge:
+
+| Evidence role | Preferred provider | Required use |
+|---|---|---|
+| Structural observed graph | `code-review-graph`, or repository code intelligence/LSP/SCIP | definitions, calls/imports, reads/writes, tests, impact, source anchors |
+| Entity-level change evidence | `sem` or repository-native diff tooling | changed functions/classes, dependents, tests, rename/move evidence |
+| Semantic/domain suggestions | `Understand Anything` or equivalent | business descriptions and candidate relationships; must be independently verified |
+| Multi-language or advanced audit | `codebase-memory`, SCIP, CodeQL, Joern, or equivalent | fallback or high-risk audit; do not silently become a second source of truth |
+
+The control layer owns provider adapters, normalized evidence, snapshots, diffs, status transitions, and AC gates:
+
+```text
+Provider adapter:
+  name / version / command / generated_at
+  capabilities / limitations
+  input repository + git SHA
+  output normalized nodes + edges + evidence
+```
+
+Use four machine-readable artifacts when code changes are involved:
+
+```text
+graph-evidence.schema.json  # canonical shape and allowed states
+graph-snapshot.json         # Observed Graph or Target Graph
+graph-diff.json             # baseline/current Change Graph
+code-map.md                 # human routing and unresolved explanations
+```
+
+Keep three graph meanings separate:
+
+```text
+Observed Graph: facts verified in the current repository/runtime.
+Target Graph: planned nodes and edges derived from requirements and AC.
+Change Graph: the difference between a frozen baseline and the current graph.
+```
+
+Every node and edge must have a stable ID, kind, status, provider, Git SHA, source anchor where applicable, confidence, coverage, freshness, and verification evidence. Allowed statuses are:
+
+```text
+planned | observed | changed | implemented | verified | blocked | unresolved | removed
+```
+
+`implemented` is not `verified`. A dynamic event, delegate, framework registration, or other edge that static analysis cannot prove stays `unresolved`; an empty impact result is not proof of safety.
+
+Status rules:
+
+- From zero: `planned -> implemented -> verified`, with re-indexing between implementation and verification.
+- Refactor: freeze `baseline_sha`, compare the current graph, use `changed` for the bounded subgraph, then mark only validated nodes/edges `verified`.
+- `blocked` and `unresolved` require an explanation and recovery action; they cannot be hidden by prose.
+- `removed` requires a diff entry and consumer/rollback evidence.
+
+From-zero workflow:
+
+```text
+Requirements -> source coverage -> Target Graph -> human confirmation of unclear boundaries
+-> one vertical slice: producer -> contract -> consumer -> error path -> verification
+-> re-index -> Observed Graph -> mark verified nodes/edges
+```
+
+Refactor workflow:
+
+```text
+Observed Graph -> real data/runtime audit -> baseline Git SHA
+-> Target Graph + Change Graph -> bounded subgraph change
+-> re-index + entity diff/impact -> write/read/integrity/safety validation
+-> update snapshot, diff, code-map, verification, and handoff
+```
 
 ## Context Provider and Code Network
 
@@ -88,6 +162,9 @@ Tests: existing tests and required new tests
 Impact: files/symbols affected before editing
 Unknowns: unresolved names, contracts, or boundaries
 Context Provider: tool/command and version used to obtain the evidence
+Graph artifacts: snapshot + diff + stable node/edge IDs
+Storage contracts: writer(s) + reader(s) + state consumers + runtime visibility
+Source coverage: every `##` section mapped or explicitly deferred
 ```
 
 Prefer providers in this order:
@@ -104,16 +181,30 @@ Every code-changing task must pass two gates:
 
 | Gate | Required evidence | Blocking failure |
 |---|---|---|
-| `pre-change` | Target definitions, producer/consumer edges, read/write effects, tests, and impact are verified | Any required symbol or edge is guessed or unresolved without an approved boundary |
-| `post-change` | Build/typecheck, tests, changed exports/imports/routes/schemas, and diff impact are checked | New unresolved edge, broken consumer, dead export, `Ghost Interface`, or `Orphan Node` |
+| `pre-change` | Target definitions, producer/consumer edges, storage writers/readers, state consumers, tests, impact, source coverage, and baseline evidence are verified | Any required symbol, edge, writer, reader, or source section is guessed or unresolved without an approved boundary |
+| `post-change` | Re-indexed graph, build/typecheck, tests, changed exports/imports/routes/schemas, runtime write evidence, reader visibility, data-integrity/safety checks, and diff impact are checked | New unresolved edge, broken consumer, unreachable state, schema-only completion, `Ghost Interface`, or `Orphan Node` |
 
 Definitions:
 
 - `Ghost Interface`: an API, function, event, route, schema, or exported symbol described or implemented without a verified producer-to-consumer path, or without an explicit approved entrypoint.
 - `Orphan Node`: a new implementation, export, task output, or data write that is not reachable from the intended flow and has no explicit entrypoint, consumer, or test.
 - `contract closure`: every contract row has a real producer, real consumer(s), data shape, error path, and verification evidence.
+- `reader/writer closure`: every persisted table, field, cache, or event has a real writer and reader, or an explicitly named milestone for the missing side.
+- `state reachability`: every written state has a downstream consumer or an explicitly declared terminal state; a state with no consumer is a red flag.
+- `runtime visibility`: after a writer executes, a reader-side query or observable consumer can retrieve the result. Schema existence alone is not functionality evidence.
 
 No text-only interface may pass. Every interface must resolve to repository-relative paths and symbols, or be explicitly declared as a new file/symbol task with both sides of the edge planned.
+
+For persisted or stateful behavior, pair every structural check with runtime checks:
+
+```text
+schema/table/interface exists
++ writer executes and produces expected state/data
++ reader/query/event consumer observes that state/data
++ error, data-integrity, and safety behavior is verified
+```
+
+If the expected result is empty, record `intentionally empty`, the reason, and the milestone that owns the writer. Do not call a feature complete because an empty table or schema test passes.
 
 ## Task Graph and Vertical Slices
 
@@ -126,6 +217,9 @@ Stage Packet:
 Target symbols/files:
 Edges opened/changed:
 Producer -> consumer closure:
+Graph node IDs / edge IDs:
+Runtime visibility evidence:
+Coverage rows updated:
 Output:
 Tests:
 Validation evidence:
@@ -148,6 +242,12 @@ dependencies
 approval owner
 validation commands
 data integrity rules
+source-section coverage
+producer / writer
+consumer / reader
+state values and state consumers
+runtime data or reader visibility evidence
+enum values and schema constraint
 forbidden actions
 existing interfaces / reuse targets
 high-risk operations
@@ -192,7 +292,11 @@ Minimum AI-ready checklist:
 | Confirmation gates | High-risk confirmation and business approval boundaries named |
 | Stage packet | Current stage has bounded reading inputs and a recovery pointer |
 | Code network | Changed symbols, edges, impact, and provider evidence are recorded |
+| Source coverage | Every source `##` section is covered, explicitly deferred, or explicitly not applicable |
 | Contract closure | Every changed boundary has producer, consumer, data shape, error path, and validation |
+| Reader/writer closure | Every persisted object has writer, reader, state consumers, and runtime visibility evidence or an explicit milestone |
+| Enum completeness | Design enum values and schema constraint values are equal, or the difference is approved and recorded |
+| Review verification | Review findings, rejection premises, and coverage limitations are independently verified before acceptance |
 | Tasks | Each task maps to AC IDs |
 | Tests | Validation commands or observable checks exist |
 | Expected result | Final artifact or state is named |
@@ -324,6 +428,8 @@ Use this flow for large projects:
 Explore / Current-state map -> Proposal -> Requirements -> Design -> Code map / Contracts -> Task graph -> Implementation -> Verify -> Archive
 ```
 
+For source documents with multiple chapters, the current-state step must first inventory `^## ` headings and produce `coverage.md`; line-count slicing is not evidence of complete review.
+
 For medium projects, use a Change Packet. For small projects, a single document is acceptable only when it remains bounded and includes at least:
 
 ```text
@@ -413,14 +519,17 @@ AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心
 
 执行规范：
 1. 开始某阶段前，先读取 manifest、当前 Stage Packet 和其引用的上下文；不得强制完整阅读整个 PRD
-2. 实现前先输出本阶段计划、改动范围、依赖、验收命令
-3. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
-4. 实现完成后，按 AC 编号逐条自检，并完成 post-change Code Network Gate
-5. 自检输出格式固定为：AC编号 | PASS/FAIL/WARN | 说明
-6. 任一 FAIL、Ghost Interface、Orphan Node 或 unresolved contract closure 必须在当前阶段修复，不得进入下一阶段
-7. 全局禁止项每个阶段都必须检查
-8. 每阶段报告必须写入指定 reports 目录
-9. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
+2. 先按 `^## ` 建立章节清单，并把每个章节映射到 EARS、节点/边和 AC；遗漏必须显式延期或阻塞
+3. 实现前先输出本阶段计划、改动范围、依赖、验收命令
+4. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
+5. 持久化或状态任务必须同时确认 writer、reader、状态消费者、枚举集合和运行时可见性检查
+6. 每个最小任务完成后重新索引，更新 graph snapshot/diff、code-map、coverage 和 handoff，再按 AC 编号自检
+7. 实现完成后完成 post-change Code Network Gate；`implemented` 不得直接标为 `verified`
+8. 自检输出格式固定为：AC编号 | PASS/FAIL/WARN | 说明
+9. 任一 FAIL、Ghost Interface、Orphan Node、未闭合读写、不可达状态或 unresolved contract closure 必须在当前阶段修复
+10. 全局禁止项每个阶段都必须检查
+11. 每阶段报告必须写入指定 reports 目录
+12. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
 ```
 
 ## Approval Gate
@@ -466,6 +575,9 @@ AC rules:
 - Include exact commands where possible
 - Do not bury acceptance criteria only in prose
 - Classify AC when the project is complex: happy path, edge case, error path, non-functional, data integrity, safety
+- For every requirement, cover `happy`, `edge`, `error`, `non-functional`, `data-integrity`, and `safety`; if a category is not applicable, record `N/A` and the reason.
+- For storage/state requirements, require paired structure, writer, reader visibility, state reachability, enum completeness, and intentional-empty checks.
+- A review finding, rejection premise, or low-coverage result is not an accepted fact until independent evidence verifies it.
 
 Table format:
 
@@ -520,6 +632,15 @@ edge kind:
 input:
 output:
 writes:
+readers / consumers:
+state values:
+state semantics:
+state producers:
+state consumers:
+enum values:
+schema enum values:
+expected runtime state: non-empty | intentionally empty | not applicable
+runtime evidence:
 error path:
 forbidden:
 pre-change evidence:
@@ -566,6 +687,11 @@ Require stage reports for long-running agent work:
 接口变更:
 Context Provider:
 Code map / graph snapshot:
+Graph diff / baseline SHA:
+Source coverage:
+Writer / reader closure:
+State reachability:
+Runtime visibility:
 Pre-change impact:
 Post-change impact:
 执行命令:
@@ -617,6 +743,13 @@ handoff:
 | Producer written without consumer | Use a vertical slice and block on Ghost Interface |
 | Consumer or export is unreachable | Run post-change impact checks and block on Orphan Node |
 | Codebase context is too large | Use local/module/system Context level and a bounded context provider |
+| Table/schema exists but behavior is absent | Pair structure checks with writer execution, runtime data, and reader visibility |
+| Reader exists without a writer | Record writer/reader closure or an explicit owning milestone |
+| Written state is never consumed | Add state reachability AC and a consumer for every non-terminal state |
+| Enum values lose their semantics | Map every enum value to producer, consumer, and schema constraint |
+| Source chapter silently disappears | Split at `^## `, generate a chapter inventory, and record defer/N/A reasons |
+| Code review finding is accepted by vote alone | Mark it proposed/inconclusive until independent evidence verifies it |
+| "Not implemented" is inferred from code only | Query real data/runtime state and distinguish unimplemented, broken, and corrupted |
 | No architecture constitution | Add truth source, ownership, integrity, forbidden shortcuts |
 | No workflow variant | Declare requirements-first or design-first |
 | No spec maintenance mode | Declare spec-first, spec-anchored, or spec-as-source |
@@ -629,4 +762,5 @@ handoff:
 
 - Use `references/prd_template.md` when drafting a new document from scratch.
 - Use `references/change_packet_template.md` for medium and large work; use `prd_template.md` only for bounded small work.
+- Use `references/graph-evidence.schema.json`, `graph-snapshot.json`, and `graph-diff.json` for normalized graph evidence; validate with `scripts/check_graph_evidence.py`.
 - Use `scripts/check_prd_ac.py <file>` for a lightweight structural check after editing.
