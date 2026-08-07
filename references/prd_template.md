@@ -34,13 +34,13 @@ Supersedes:
 9. [M5 端到端验收](#9-m5-端到端验收)
 10. [增强层接入顺序](#10-增强层接入顺序)
 11. [附录](#11-附录)
-12. [验收标准总览（Acceptance Criteria）](#12-验收标准总览acceptance-criteria) ← **AI 执行器必读，唯一验收依据**
+12. [验收标准总览（Acceptance Criteria）](#12-验收标准总览acceptance-criteria) ← **AI 执行器必读（单文档模式唯一验收依据）**
 
 ---
 
 > **AI 执行器强制阅读声明**
 >
-> 第 12 章为唯一验收依据。实现说明不替代验收标准。  
+> 小型单文档以第 12 章为唯一验收依据；Change Packet 以 `verification.md` 中的 Acceptance Criteria 为唯一验收依据。实现说明不替代验收标准。
 > PRD + AC 是实现真源。实现、测试、报告必须回连 AC 编号。  
 > 未批准 PRD 不得进入实现。重大范围变更必须先修订 PRD。
 > AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心设计决策。
@@ -49,14 +49,15 @@ Supersedes:
 > 高风险操作必须设置 High-risk confirmation gate，不得为了推进而绕过。
 >
 > **执行规范：**
-> 1. 开始某阶段前，先完整读取对应 `12.x` 小节
+> 1. 开始某阶段前，先读取 manifest、当前 Stage Packet 和其引用的上下文；不得强制完整阅读整个 PRD
 > 2. 实现前先输出本阶段计划、改动范围、依赖、验收命令
-> 3. 实现完成后，按 AC 编号逐条自检
-> 4. 自检输出格式固定为：`AC编号 | PASS/FAIL/WARN | 说明`
-> 5. 任一 `FAIL` 必须在当前阶段修复，不得进入下一阶段
-> 6. `G-*` 全局禁止项每个阶段都必须检查
-> 7. 每阶段报告必须写入指定 reports 目录
-> 8. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
+> 3. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
+> 4. 实现完成后，按 AC 编号逐条自检，并完成 post-change Code Network Gate
+> 5. 自检输出格式固定为：`AC编号 | PASS/FAIL/WARN | 说明`
+> 6. 任一 `FAIL`、Ghost Interface、Orphan Node 或未闭合 contract 必须在当前阶段修复，不得进入下一阶段
+> 7. `G-*` 全局禁止项每个阶段都必须检查
+> 8. 每阶段报告必须写入指定 reports 目录
+> 9. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
 
 ---
 
@@ -98,6 +99,33 @@ scope 边界:
 
 ---
 
+## 0.2 Change Packet and Stage Packet
+
+中型及以上工作使用变更包，不把所有内容堆进一个长 PRD：
+
+```text
+changes/<change-id>/
+  manifest.md
+  proposal.md
+  requirements.md
+  design.md
+  contracts/
+  code-map.md
+  tasks.md
+  verification.md
+  handoff.md
+```
+
+规则：
+
+- `manifest.md` 只记录范围、当前阶段、当前 Stage Packet、阻塞和下一命令。
+- 每个阶段只读取 manifest、当前 Stage Packet 和明确引用的上下文，不强制完整阅读整个变更包。
+- 每个任务必须声明需要读取的 Stage Packet；阶段切换时更新 manifest。
+- 任务使用 `task graph` 和 `dependency graph` 表达执行顺序与代码关系，不用孤立的文件清单替代。
+- 单文档只适用于小型、单边界、能在一个上下文负载内完成的工作。
+
+---
+
 ## 0.1 AI Readiness Gate
 
 ```text
@@ -110,6 +138,10 @@ Blocking ambiguities:
 Human confirmation:
 High-risk confirmation:
 Validation evidence:
+Change Packet:
+Stage Packet:
+Context Provider:
+Code Network status: verified | unresolved | blocked
 ```
 
 | Item | Requirement | Status |
@@ -122,6 +154,9 @@ Validation evidence:
 | Contracts | Inputs/outputs/writes/forbidden actions specified | PASS/FAIL |
 | Existing reuse targets | Existing interfaces/files/helpers/patterns named or discovery step required | PASS/FAIL |
 | Confirmation gates | High-risk confirmation and business approval boundaries named | PASS/FAIL |
+| Stage packet | Current stage has bounded reading inputs and a recovery pointer | PASS/FAIL |
+| Code network | Changed symbols, edges, impact, and provider evidence are recorded | PASS/FAIL |
+| Contract closure | Every changed boundary has producer, consumer, data shape, error path, and validation | PASS/FAIL |
 | Tasks | Each task maps to AC IDs | PASS/FAIL |
 | Tests | Validation commands or observable checks exist | PASS/FAIL |
 | Expected result | Final artifact or state is named | PASS/FAIL |
@@ -150,7 +185,7 @@ Validation evidence:
 ### 1.4 阶段文档流
 
 ```text
-Proposal -> Requirements -> Design -> Tasks -> Implementation -> Acceptance
+Explore / Current-state map -> Proposal -> Requirements -> Design -> Code map / Contracts -> Task graph -> Implementation -> Verify -> Archive
 ```
 
 ### 1.5 Workflow Variant
@@ -212,6 +247,8 @@ Truth source:
 Derived indexes:
 Ownership boundaries:
 Existing interfaces / reuse targets:
+Code network source:
+Context Provider:
 Data integrity rules:
 Security / safety rules:
 Forbidden shortcuts:
@@ -237,23 +274,45 @@ Refactor limits:
 ...
 ```
 
-### 3.2 核心接口
+### 3.2 Code Network Context
+
+```text
+Context level: local | module | system
+Targets: <repo-relative path>:<symbol>
+Definitions:
+Callers / consumers:
+Callees / producers:
+Edges: calls | imports | reads | writes | publishes | subscribes | validates
+Tests:
+Pre-change impact:
+Unresolved edges:
+Context Provider:
+```
+
+### 3.3 核心接口
 
 #### producer -> consumer
 
 ```text
+producer source: <repo-relative path>:<symbol>
+consumer source: <repo-relative path>:<symbol>
+edge kind:
 input:
 output:
 writes:
+error path:
 forbidden:
-validation:
+pre-change evidence:
+post-change validation:
 ```
 
-### 3.3 Task -> AC 映射
+contract closure: producer + consumer + data shape + error path + validation
 
-| Task | Implements AC | Output | Validation |
-|------|---------------|--------|------------|
-| M1-T01 | M1-DONE-01 | ... | ... |
+### 3.4 Task Graph -> AC 映射
+
+| Task | Depends on | Stage Packet | Target symbols/files | Edges closed | Implements AC | Validation |
+|------|------------|--------------|----------------------|--------------|---------------|------------|
+| M1-T01 | - | code-map.md | ... | ... -> ... | M1-DONE-01 | ... |
 
 ---
 
@@ -270,6 +329,20 @@ validation:
 ```text
 1. ...
 ```
+
+### 4.3 P0 输出
+
+```text
+manifest.md:
+Stage Packet:
+code-map.md:
+contracts/:
+Context Provider:
+Unresolved edges:
+Pre-change Code Network Gate: PASS | FAIL | BLOCKED
+```
+
+P0 未通过前不得写实现代码。若边、符号、消费者或数据形状无法从代码库证实，必须保持 `BLOCKED`，不得用文字补齐。
 
 ---
 
@@ -310,6 +383,10 @@ WHERE <场景/配置>, THE SYSTEM SHALL <特定行为>.
 修改文件:
 数据库变更:
 接口变更:
+Context Provider:
+Code map / graph snapshot:
+Pre-change impact:
+Post-change impact:
 执行命令:
 命令结果:
 Validation evidence:
@@ -342,12 +419,17 @@ handoff:
 | G-03 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
 | G-04 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
 | G-05 | 禁止无 Validation evidence 宣称完成 | FAIL |
+| G-06 | 禁止用强制完整阅读长 PRD 替代 Stage Packet | FAIL |
+| G-07 | 禁止用纯文字接口描述替代实际符号、边和验证证据 | FAIL |
+| G-08 | 禁止提交 Ghost Interface、Orphan Node 或未闭合 contract | FAIL |
 
 ### 12.1 P0 验收
 
 | AC | 类别 | 验收项 | 验证方法 | 等级 |
 |----|------|--------|----------|------|
 | P0-01 | happy | ... | ... | FAIL |
+| P0-NET-01 | data-integrity | code-map 已记录目标符号、producer/consumer、边和未解析项 | 检查 `code-map.md` 和 Context Provider 结果 | FAIL |
+| P0-NET-02 | safety | pre-change Code Network Gate 已通过 | 检查所有目标边有 source anchor 和 impact evidence | FAIL |
 | P0-DONE | happy | ... | ... | FAIL |
 
 ### 12.2 M1 验收

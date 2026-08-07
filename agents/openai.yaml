@@ -1,4 +1,4 @@
 interface:
   display_name: "PRD AC Execution Guide"
-  short_description: "Create executable PRDs with acceptance criteria gates."
-  default_prompt: "Create a PRD-style execution guide with numbered acceptance criteria and phase gates."
+  short_description: "Create bounded PRDs or change packets with acceptance and code-network gates."
+  default_prompt: "Create a bounded PRD or Change Packet with numbered acceptance criteria, stage packets, verified code-network contracts, task dependencies, and phase gates."

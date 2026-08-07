@@ -48,6 +48,18 @@ RECOMMENDED_PHRASES = [
     "High-risk confirmation",
     "honest blocking",
     "cautious refactor",
+    "Change Packet",
+    "Stage Packet",
+    "Context Provider",
+    "Code Network",
+    "Ghost Interface",
+    "Orphan Node",
+    "pre-change",
+    "post-change",
+    "contract closure",
+    "dependency graph",
+    "task graph",
+    "不得强制完整阅读",
 ]
 
 AC_CATEGORIES = [
