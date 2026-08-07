@@ -153,6 +153,25 @@ class GraphEvidenceTests(unittest.TestCase):
     def test_valid_target_snapshot_passes(self) -> None:
         self.assertEqual(validate_document(valid_snapshot("target")), [])
 
+    def test_map_only_accepts_observed_snapshot(self) -> None:
+        self.assertEqual(validate_document(valid_snapshot(), map_only=True), [])
+
+    def test_map_only_rejects_target_graph(self) -> None:
+        errors = validate_document(valid_snapshot("target"), map_only=True)
+        self.assertTrue(any("map-only" in error for error in errors))
+
+    def test_map_only_rejects_implementation_status(self) -> None:
+        document = valid_snapshot()
+        document["nodes"][0]["status"] = "implemented"
+        errors = validate_document(document, map_only=True)
+        self.assertTrue(any("status" in error for error in errors))
+
+    def test_map_only_rejects_planned_contract(self) -> None:
+        document = valid_snapshot()
+        document["contracts"][0]["status"] = "planned"
+        errors = validate_document(document, map_only=True)
+        self.assertTrue(any("map-only status" in error for error in errors))
+
     def test_target_snapshot_requires_requirement_refs(self) -> None:
         document = valid_snapshot("target")
         document["nodes"][0]["requirement_refs"] = []
@@ -255,6 +274,17 @@ class GraphEvidenceTests(unittest.TestCase):
                 result = main([str(path)])
             self.assertEqual(result, 1)
             self.assertIn("FAIL", output.getvalue())
+
+    def test_cli_map_only_accepts_observed_snapshot(self) -> None:
+        document = valid_snapshot()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "observed.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            output = StringIO()
+            with redirect_stdout(output):
+                result = main(["--map-only", str(path)])
+            self.assertEqual(result, 0)
+            self.assertIn("PASS", output.getvalue())
 
     def test_dynamic_edge_must_remain_unresolved(self) -> None:
         document = valid_snapshot()

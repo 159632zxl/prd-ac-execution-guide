@@ -149,6 +149,60 @@ Observed Graph -> real data/runtime audit -> baseline Git SHA
 -> update snapshot, diff, code-map, verification, and handoff
 ```
 
+## Code Map Only Workflow
+
+Use this mode when the requested output is repository understanding only and no implementation or refactor is approved.
+
+```text
+Mode: code-map-only
+Implementation allowed: no
+Graph mode: observed-only
+No source modifications: required
+```
+
+Minimal output:
+
+```text
+changes/<change-id>/
+  manifest.md          # mode, baseline SHA, scope, provider, blockers
+  coverage.md          # every source section/path and its mapping status
+  code-map.md          # definitions, callers, callees, edges, tests, impact
+  graph-snapshot.json  # artifact_type graph_snapshot, graph_type observed
+  verification.md      # Map Completeness Gate evidence
+  handoff.md           # unresolved edges and recovery entrypoint
+```
+
+Execution:
+
+```text
+Confirm code-map-only scope
+-> freeze baseline Git SHA
+-> discover the best existing Provider and record limitations
+-> inventory paths and `^## ` source sections
+-> index the Observed Graph
+-> normalize nodes, edges, storage contracts, and unresolved dynamic edges
+-> run `check_graph_evidence.py --map-only`
+-> complete Map Completeness Gate
+-> write verification and handoff
+```
+
+### Map Completeness Gate
+
+The map-only task passes only when all applicable rows have evidence:
+
+| Check | Required evidence | Blocking failure |
+|---|---|---|
+| Scope | baseline SHA, repository scope, excluded paths, and Provider/version | scope or Provider is guessed |
+| Coverage | all requested paths and `##` source sections are covered, deferred, or explicitly not applicable | silent omission or unknown coverage |
+| Structure | stable node/edge IDs, definitions, endpoints, source anchors, calls/imports/reads/writes/tests | text-only relationship or missing endpoint |
+| Contracts | writer, reader, state consumers, enum/schema values, and runtime/data evidence when persistent state exists | reader/writer gap or schema-only claim |
+| Uncertainty | dynamic/framework edges remain `unresolved` with a reason and next query | inferred edge presented as fact |
+| Reachability | no Ghost Interface or Orphan Node without an explicit entrypoint/test | unreachable node or interface |
+| Mutation safety | `git diff` proves no business-code modification | implementation or refactor hidden in mapping |
+| Handoff | `code-map.md`, `graph-snapshot.json`, `verification.md`, and `handoff.md` point to the same SHA | next agent must guess recovery state |
+
+For map-only validation, `Target Graph`, `Change Graph`, `planned`, `changed`, `implemented`, and `removed` are out of scope. Future implementation may start only after a separate approved Change Packet is created.
+
 ## Context Provider and Code Network
 
 Text describing an interface is not evidence that the implementation network is complete. Before code changes, create a `Context Packet` for the requested change:

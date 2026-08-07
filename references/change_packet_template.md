@@ -23,6 +23,7 @@ changes/<change-id>/
 ```text
 Change ID:
 Title:
+Mode: code-map-only | implementation | refactor
 Spec status: draft | approved | superseded
 Current stage:
 Current Stage Packet:
@@ -42,6 +43,46 @@ Recovery entrypoint:
 ```
 
 The manifest is the execution index. Do not duplicate the full requirements, design, or report in it.
+
+## Code Map Only Packet
+
+Use this smaller packet when the requested output is repository understanding only:
+
+```text
+changes/<change-id>/
+  manifest.md
+  coverage.md
+  code-map.md
+  graph-snapshot.json
+  verification.md
+  handoff.md
+```
+
+```text
+Mode: code-map-only
+Implementation allowed: no
+Graph mode: observed-only
+No source modifications: required
+Baseline Git SHA:
+Provider / version / command:
+Scope and excluded paths:
+Map Completeness Gate: PASS | FAIL | BLOCKED
+```
+
+Execution order:
+
+```text
+freeze baseline SHA
+-> choose and record Provider
+-> inventory paths and `^## ` sections
+-> generate Observed Graph
+-> write code-map + graph-snapshot + coverage
+-> python scripts/check_graph_evidence.py --map-only graph-snapshot.json
+-> complete Map Completeness Gate
+-> write verification and handoff
+```
+
+Map-only must not create a Target Graph or Change Graph and must not mark nodes/edges as `planned`, `changed`, `implemented`, or `removed`.
 
 ## coverage.md
 
@@ -184,6 +225,8 @@ Reader/writer closure:
 State reachability:
 Enum completeness:
 Source coverage completeness:
+Map Completeness Gate:
+No source modifications:
 Validation evidence:
 AC self-check:
   AC-ID | PASS/FAIL/WARN | evidence

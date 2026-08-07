@@ -140,7 +140,13 @@ def _validate_reviews(document: dict[str, Any], errors: list[str]) -> None:
                 errors.append(f"{label} verified requires independent_verification")
 
 
-def _validate_contracts(document: dict[str, Any], errors: list[str], node_ids: set[str], edges: list[dict[str, Any]]) -> None:
+def _validate_contracts(
+    document: dict[str, Any],
+    errors: list[str],
+    node_ids: set[str],
+    edges: list[dict[str, Any]],
+    map_only: bool = False,
+) -> None:
     contracts = _as_list(document.get("contracts"))
     if contracts is None:
         errors.append("contracts must be a list")
@@ -226,11 +232,13 @@ def _validate_contracts(document: dict[str, Any], errors: list[str], node_ids: s
                 errors.append(f"{label} intentionally empty requires a milestone")
         if contract.get("status") not in STATUSES:
             errors.append(f"{label} status is invalid")
+        if map_only and contract.get("status") not in {"observed", "verified", "blocked", "unresolved"}:
+            errors.append(f"{label} map-only status must be observed, verified, blocked, or unresolved")
         if contract.get("status") == "verified" and not contract.get("verification_evidence"):
             errors.append(f"{label} verified requires verification_evidence")
 
 
-def validate_document(document: Any) -> list[str]:
+def validate_document(document: Any, map_only: bool = False) -> list[str]:
     """Return all validation errors for one normalized graph snapshot."""
 
     errors: list[str] = []
@@ -248,6 +256,11 @@ def validate_document(document: Any) -> list[str]:
     expected_artifact = "graph_diff" if graph_type == "change" else "graph_snapshot"
     if artifact_type != expected_artifact:
         errors.append(f"{graph_type} graph requires artifact_type {expected_artifact}")
+    if map_only:
+        if graph_type != "observed":
+            errors.append("map-only requires graph_type observed")
+        if any(field in document for field in ("baseline_sha", "current_sha", "diff")):
+            errors.append("map-only cannot include Change Graph baseline or diff fields")
 
     repository = document.get("repository")
     if not isinstance(repository, dict):
@@ -275,6 +288,8 @@ def validate_document(document: Any) -> list[str]:
         for field in ("paths", "excluded_paths"):
             if not isinstance(coverage.get(field), list):
                 errors.append(f"coverage.{field} must be a list")
+        if map_only and coverage.get("status") == "unknown":
+            errors.append("map-only coverage.status cannot be unknown")
 
     _validate_source_coverage(document, errors)
     _validate_reviews(document, errors)
@@ -324,6 +339,8 @@ def validate_document(document: Any) -> list[str]:
             errors.append(f"{label} confidence must be between 0 and 1")
         _validate_common(node, label, errors, graph_type)
         _validate_anchor(node, label, errors, graph_type)
+        if map_only and node.get("status") not in {"observed", "verified", "blocked", "unresolved"}:
+            errors.append(f"{label} map-only status must be observed, verified, blocked, or unresolved")
 
     edge_ids: set[str] = set()
     for index, edge in enumerate(edges):
@@ -347,6 +364,8 @@ def validate_document(document: Any) -> list[str]:
             errors.append(f"{label} confidence must be between 0 and 1")
         _validate_common(edge, label, errors, graph_type)
         _validate_anchor(edge, label, errors, graph_type)
+        if map_only and edge.get("status") not in {"observed", "verified", "blocked", "unresolved"}:
+            errors.append(f"{label} map-only status must be observed, verified, blocked, or unresolved")
         if edge.get("kind") == "dynamic" and edge.get("status") != "unresolved":
             errors.append(f"{label} dynamic edge must remain unresolved")
 
@@ -359,20 +378,21 @@ def validate_document(document: Any) -> list[str]:
         if node.get("node_id") not in incident_nodes and not node.get("entrypoint") and not node.get("test_refs"):
             errors.append(f"orphan node: {node.get('node_id')}")
 
-    _validate_contracts(document, errors, node_ids, edges)
+    _validate_contracts(document, errors, node_ids, edges, map_only=map_only)
     return errors
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path, help="graph snapshot JSON file")
+    parser.add_argument("--map-only", action="store_true", help="require an observed-only, no-change code map")
     args = parser.parse_args(argv)
     try:
         document = json.loads(args.path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"FAIL\n- cannot read JSON: {exc}")
         return 1
-    errors = validate_document(document)
+    errors = validate_document(document, map_only=args.map_only)
     if errors:
         print("FAIL")
         for error in errors:

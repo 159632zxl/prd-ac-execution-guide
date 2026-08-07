@@ -180,6 +180,58 @@ State reachability: 每个写入状态必须有下游消费者或显式终态声
 
 ---
 
+## 0.4 Code Map Only Workflow
+
+当本轮只要求理解现有仓库、不允许实现或重构时，使用独立的代码地图模式：
+
+```text
+Mode: code-map-only
+Implementation allowed: no
+Graph mode: observed-only
+No source modifications: required
+```
+
+最小输出：
+
+```text
+manifest.md
+coverage.md
+code-map.md
+graph-snapshot.json
+verification.md
+handoff.md
+```
+
+执行顺序：
+
+```text
+固定 baseline Git SHA
+-> 选择并记录 Provider/version/command
+-> 清点路径和 `^## ` 章节
+-> 生成 Observed Graph
+-> 输出 code-map、coverage、graph-snapshot
+-> 运行 `python scripts/check_graph_evidence.py --map-only graph-snapshot.json`
+-> 完成 Map Completeness Gate
+-> 写 verification 和 handoff
+```
+
+### Map Completeness Gate
+
+| 检查项 | 必须证据 | FAIL 条件 |
+|---|---|---|
+| Scope | baseline SHA、仓库范围、排除路径、Provider/version | 范围或 Provider 为猜测 |
+| Coverage | 所有目标路径和 `##` 章节均已覆盖、延期或 N/A | 静默遗漏或 unknown coverage |
+| Structure | 稳定节点/边 ID、定义、端点、源码锚点、调用/读写/测试边 | 纯文字关系或缺少端点 |
+| Contracts | writer、reader、状态消费者、枚举/schema；持久化对象还要有运行时证据 | 读写断裂或只有 schema 检查 |
+| Uncertainty | 动态/框架边保持 `unresolved`，有原因和下一查询 | 把推断关系当事实 |
+| Reachability | Ghost Interface、Orphan Node 有明确入口或测试 | 节点/接口不可达 |
+| Mutation safety | `git diff` 证明没有业务代码修改 | 混入实现或重构 |
+| Handoff | code-map、graph-snapshot、verification、handoff 指向同一 SHA | 下一个 agent 需要猜恢复状态 |
+
+Code Map Only 不生成 Target Graph 或 Change Graph，也不得将节点/边标记为 `planned`、`changed`、`implemented` 或 `removed`。
+
+---
+
 ## 0.1 AI Readiness Gate
 
 ```text
@@ -196,6 +248,7 @@ Change Packet:
 Stage Packet:
 Context Provider:
 Code Network status: verified | unresolved | blocked
+Mode: code-map-only | implementation | refactor
 Graph snapshot:
 Graph diff / baseline SHA:
 Source coverage:
