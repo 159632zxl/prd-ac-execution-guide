@@ -33,9 +33,20 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
                 "source_section_id": "DESIGN-01",
                 "status": "covered",
                 "requirement_refs": ["REQ-01"],
+                "ears_refs": ["EARS-01"],
+                "target_node_refs": ["fn:src/writer.py:write_item", "table:items", "fn:src/reader.py:read_items"],
+                "target_edge_refs": ["writes:fn:src/writer.py:write_item->table:items", "reads:table:items->fn:src/reader.py:read_items"],
                 "ac_refs": ["M1-DONE-01"],
+                "owner_task": "M1-T01",
+                "source_anchor": {"path": "design.md", "start_line": 10, "end_line": 12},
             }
         ],
+        "audit_coverage": {
+            "status": "complete",
+            "reviewers": ["independent-auditor"],
+            "independent_verification": ["repository query and runtime check"],
+            "limitations": [],
+        },
         "nodes": [
             {
                 "node_id": "fn:src/writer.py:write_item",
@@ -137,10 +148,14 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
                 "state_consumers": {"active": ["fn:src/reader.py:read_items"], "archived": ["fn:src/reader.py:read_items"]},
                 "enum_values": ["active", "archived"],
                 "schema_enum_values": ["active", "archived"],
+                "enum_semantics": {"active": "available for normal retrieval", "archived": "retained historical record"},
+                "enum_producers": {"active": ["fn:src/writer.py:write_item"], "archived": ["fn:src/writer.py:write_item"]},
+                "enum_consumers": {"active": ["fn:src/reader.py:read_items"], "archived": ["fn:src/reader.py:read_items"]},
                 "expected_runtime_state": "non-empty",
                 "runtime_evidence": ["SELECT COUNT(*) FROM items > 0", "reader query returns item"],
                 "status": "verified" if graph_type == "observed" else "planned",
                 "verification_evidence": ["insert and reader visibility checks"],
+                "implementation_state": "implemented",
             }
         ],
     }
@@ -184,6 +199,21 @@ class GraphEvidenceTests(unittest.TestCase):
         errors = validate_document(document)
         self.assertTrue(any("covered requires ac_refs" in error for error in errors))
 
+    def test_covered_source_section_requires_ears_anchor_and_owner(self) -> None:
+        document = valid_snapshot()
+        section = document["source_coverage"][0]
+        section.pop("ears_refs")
+        section.pop("source_anchor")
+        section.pop("owner_task")
+        errors = validate_document(document)
+        self.assertTrue(any("ears_refs" in error for error in errors))
+        self.assertTrue(any("source_anchor" in error for error in errors))
+        self.assertTrue(any("owner" in error for error in errors))
+        section["ears_refs"] = ["EARS-01"]
+        section["source_anchor"] = {"path": "design.md", "start_line": 10, "end_line": 12}
+        section["owner_task"] = "M1-T01"
+        self.assertEqual(validate_document(document), [])
+
     def test_unknown_edge_endpoint_fails(self) -> None:
         document = valid_snapshot()
         document["edges"][0]["to"] = "table:missing"
@@ -203,11 +233,88 @@ class GraphEvidenceTests(unittest.TestCase):
         errors = validate_document(document)
         self.assertTrue(any("writer" in error for error in errors))
 
+    def test_coverage_refs_must_exist(self) -> None:
+        document = valid_snapshot()
+        document["source_coverage"][0]["target_node_refs"] = ["fn:missing"]
+        errors = validate_document(document)
+        self.assertTrue(any("target_node_refs" in error for error in errors))
+
+    def test_enum_values_require_semantics_producers_and_consumers(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract.pop("enum_semantics")
+        errors = validate_document(document)
+        self.assertTrue(any("enum_semantics" in error for error in errors))
+        contract["enum_semantics"] = {"active": "available", "archived": "retained"}
+        self.assertEqual(validate_document(document), [])
+
+    def test_state_without_consumer_requires_deferred_milestone(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["state_consumers"]["archived"] = []
+        errors = validate_document(document)
+        self.assertTrue(any("deferred milestone" in error for error in errors))
+        contract["state_deferred_milestones"] = {"archived": "M2"}
+        self.assertEqual(validate_document(document), [])
+
     def test_enum_mismatch_fails(self) -> None:
         document = valid_snapshot()
         document["contracts"][0]["schema_enum_values"] = ["active"]
         errors = validate_document(document)
         self.assertTrue(any("enum" in error for error in errors))
+
+    def test_nullable_unique_key_requires_null_semantics_and_duplicate_query(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["storage_kind"] = "sql_table"
+        contract["unique_keys"] = ["subject_abbr", "concept_name"]
+        contract["nullable_unique_columns"] = ["subject_abbr"]
+        errors = validate_document(document)
+        self.assertTrue(any("null_semantics" in error for error in errors))
+        self.assertTrue(any("duplicate_query" in error for error in errors))
+        contract["null_semantics"] = "partial_index"
+        contract["duplicate_query"] = "SELECT subject_abbr, concept_name, COUNT(*) FROM concept_mastery GROUP BY subject_abbr, concept_name HAVING COUNT(*) > 1"
+        contract["foreign_key_check"] = "PRAGMA foreign_key_check"
+        self.assertEqual(validate_document(document), [])
+
+    def test_sql_contract_requires_foreign_key_check(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["storage_kind"] = "sql_table"
+        errors = validate_document(document)
+        self.assertTrue(any("foreign_key_check" in error for error in errors))
+
+    def test_strategy_requires_parameters_or_blocked_status(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["strategy_name"] = "exponential"
+        errors = validate_document(document)
+        self.assertTrue(any("strategy" in error for error in errors))
+        contract["strategy_status"] = "blocked"
+        contract["strategy_blocking_reason"] = "half-life not approved"
+        self.assertEqual(validate_document(document), [])
+
+    def test_degraded_failure_requires_observable_distinction(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["failure_mode"] = "degraded-with-warning"
+        errors = validate_document(document)
+        self.assertTrue(any("observability" in error for error in errors))
+        self.assertTrue(any("distinguish" in error for error in errors))
+        contract["observability_evidence"] = ["retrieval_warnings field"]
+        contract["distinguishes_failure_from_empty"] = True
+        self.assertEqual(validate_document(document), [])
+
+    def test_corrupted_data_requires_cleanup_plan(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["implementation_state"] = "data-corrupted"
+        errors = validate_document(document)
+        self.assertTrue(any("data_audit_evidence" in error for error in errors))
+        self.assertTrue(any("cleanup_plan" in error for error in errors))
+        contract["data_audit_evidence"] = ["duplicate query returned 32 rows"]
+        contract["cleanup_plan"] = "M0-T02 migration"
+        self.assertEqual(validate_document(document), [])
 
     def test_state_requires_semantics_and_producer(self) -> None:
         document = valid_snapshot()
@@ -226,6 +333,35 @@ class GraphEvidenceTests(unittest.TestCase):
         ]
         errors = validate_document(document)
         self.assertTrue(any("independent_verification" in error for error in errors))
+
+    def test_rejected_review_finding_requires_premise_verification(self) -> None:
+        document = valid_snapshot()
+        document["review_findings"] = [
+            {
+                "finding_id": "F-02",
+                "status": "rejected",
+                "evidence": ["reviewer report"],
+                "premises": ["duplicate rows are impossible"],
+            }
+        ]
+        errors = validate_document(document)
+        self.assertTrue(any("premise_verification" in error for error in errors))
+        document["review_findings"][0]["premise_verification"] = ["production query found duplicate rows"]
+        self.assertEqual(validate_document(document), [])
+
+    def test_inconclusive_review_finding_requires_reason(self) -> None:
+        document = valid_snapshot()
+        document["review_findings"] = [
+            {
+                "finding_id": "F-03",
+                "status": "inconclusive",
+                "evidence": ["429 rate limit"],
+            }
+        ]
+        errors = validate_document(document)
+        self.assertTrue(any("inconclusive_reason" in error for error in errors))
+        document["review_findings"][0]["inconclusive_reason"] = "rate limit prevented complete verification"
+        self.assertEqual(validate_document(document), [])
 
     def test_intentionally_empty_requires_reason_and_milestone(self) -> None:
         document = valid_snapshot()

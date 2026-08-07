@@ -12,6 +12,7 @@
     "provider",
     "coverage",
     "source_coverage",
+    "audit_coverage",
     "nodes",
     "edges",
     "contracts"
@@ -46,6 +47,7 @@
       "type": "array",
       "items": {"$ref": "#/$defs/sourceCoverage"}
     },
+    "audit_coverage": {"$ref": "#/$defs/auditCoverage"},
     "baseline_sha": {"$ref": "#/$defs/gitSha"},
     "current_sha": {"$ref": "#/$defs/gitSha"},
     "diff": {"$ref": "#/$defs/diff"},
@@ -78,14 +80,41 @@
     "sourceCoverage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_section_id", "status", "requirement_refs", "ac_refs"],
+      "required": [
+        "source_section_id",
+        "status",
+        "requirement_refs",
+        "ears_refs",
+        "target_node_refs",
+        "target_edge_refs",
+        "ac_refs",
+        "owner_task",
+        "source_anchor"
+      ],
       "properties": {
         "source_section_id": {"type": "string", "minLength": 1},
         "status": {"enum": ["covered", "deferred", "not-applicable"]},
         "requirement_refs": {"type": "array", "items": {"type": "string"}},
+        "ears_refs": {"type": "array", "items": {"type": "string"}},
+        "target_node_refs": {"type": "array", "items": {"type": "string"}},
+        "target_edge_refs": {"type": "array", "items": {"type": "string"}},
         "ac_refs": {"type": "array", "items": {"type": "string"}},
+        "owner_task": {"type": "string", "minLength": 1},
         "explicit_reason": {"type": "string"},
-        "source_anchor": {"$ref": "#/$defs/sourceAnchor"}
+        "source_anchor": {
+          "anyOf": [{"$ref": "#/$defs/sourceAnchor"}, {"type": "null"}]
+        }
+      }
+    },
+    "auditCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewers", "independent_verification", "limitations"],
+      "properties": {
+        "status": {"enum": ["complete", "partial", "inconclusive"]},
+        "reviewers": {"type": "array", "items": {"type": "string"}},
+        "independent_verification": {"$ref": "#/$defs/evidence"},
+        "limitations": {"type": "array", "items": {"type": "string"}}
       }
     },
     "sourceAnchor": {
@@ -185,7 +214,9 @@
         "coverage": {"$ref": "#/$defs/coverageStatus"},
         "freshness": {"enum": ["current", "stale", "unknown"]},
         "verification_evidence": {"$ref": "#/$defs/evidence"},
-        "requirement_refs": {"type": "array", "items": {"type": "string"}}
+        "requirement_refs": {"type": "array", "items": {"type": "string"}},
+        "unresolved_reason": {"type": "string"},
+        "next_query": {"type": "string"}
       }
     },
     "contract": {
@@ -200,20 +231,38 @@
         "state_semantics",
         "state_producers",
         "state_consumers",
+        "enum_semantics",
+        "enum_producers",
+        "enum_consumers",
         "enum_values",
         "schema_enum_values",
         "expected_runtime_state",
         "runtime_evidence",
         "status",
-        "verification_evidence"
+        "verification_evidence",
+        "implementation_state"
       ],
       "properties": {
         "contract_id": {"type": "string", "minLength": 1},
         "storage_node_id": {"type": "string", "minLength": 1},
+        "storage_kind": {"enum": ["sql_table", "sql_field", "cache", "event", "interface", "file", "other"]},
         "writers": {"type": "array", "items": {"type": "string"}},
         "readers": {"type": "array", "items": {"type": "string"}},
         "writer_milestone": {"type": "string"},
         "reader_milestone": {"type": "string"},
+        "foreign_key_check": {"type": "string"},
+        "unique_keys": {"type": "array", "items": {"type": "string"}},
+        "nullable_unique_columns": {"type": "array", "items": {"type": "string"}},
+        "null_semantics": {"enum": ["sentinel", "partial_index", "coalesce_expression_index", "blocked"]},
+        "null_semantics_blocking_reason": {"type": "string"},
+        "duplicate_query": {"type": "string"},
+        "strategy_name": {"type": "string"},
+        "strategy_status": {"enum": ["ready", "blocked"]},
+        "strategy_parameters": {"type": ["object", "array", "string", "number"]},
+        "strategy_trigger": {"type": "string"},
+        "strategy_target": {"type": "string"},
+        "strategy_entrypoint": {"type": "string"},
+        "strategy_blocking_reason": {"type": "string"},
         "state_values": {"type": "array", "items": {"type": "string"}},
         "state_semantics": {
           "type": "object",
@@ -227,7 +276,23 @@
           "type": "object",
           "additionalProperties": {"type": "array", "items": {"type": "string"}}
         },
+        "state_deferred_milestones": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
         "terminal_states": {"type": "array", "items": {"type": "string"}},
+        "enum_semantics": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
+        "enum_producers": {
+          "type": "object",
+          "additionalProperties": {"type": "array", "items": {"type": "string"}}
+        },
+        "enum_consumers": {
+          "type": "object",
+          "additionalProperties": {"type": "array", "items": {"type": "string"}}
+        },
         "enum_values": {"type": "array", "items": {"type": "string"}},
         "schema_enum_values": {"type": "array", "items": {"type": "string"}},
         "expected_runtime_state": {
@@ -237,7 +302,13 @@
         "intentional_empty_milestone": {"type": "string"},
         "runtime_evidence": {"$ref": "#/$defs/evidence"},
         "status": {"$ref": "#/$defs/status"},
-        "verification_evidence": {"$ref": "#/$defs/evidence"}
+        "verification_evidence": {"$ref": "#/$defs/evidence"},
+        "failure_mode": {"type": "string"},
+        "observability_evidence": {"$ref": "#/$defs/evidence"},
+        "distinguishes_failure_from_empty": {"type": "boolean"},
+        "implementation_state": {"enum": ["unimplemented", "implemented-but-broken", "data-corrupted", "implemented"]},
+        "data_audit_evidence": {"$ref": "#/$defs/evidence"},
+        "cleanup_plan": {"type": "string"}
       }
     },
     "reviewFinding": {
@@ -248,7 +319,10 @@
         "finding_id": {"type": "string", "minLength": 1},
         "status": {"enum": ["proposed", "verified", "rejected", "inconclusive"]},
         "evidence": {"$ref": "#/$defs/evidence"},
-        "independent_verification": {"$ref": "#/$defs/evidence"}
+        "independent_verification": {"$ref": "#/$defs/evidence"},
+        "premises": {"type": "array", "items": {"type": "string"}},
+        "premise_verification": {"$ref": "#/$defs/evidence"},
+        "inconclusive_reason": {"type": "string", "minLength": 1}
       }
     },
     "diff": {

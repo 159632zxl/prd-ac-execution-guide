@@ -74,7 +74,7 @@ Rules:
 - Each artifact has one job. Split an artifact when it mixes unrelated domains or cannot fit the current context budget.
 - At the start of a stage, read the manifest, the current `Stage Packet`, and only the referenced context artifacts. Do not force full-document reading of the entire packet.
 - Every task names its required Stage Packet and updates the manifest when the stage, blocker, or next command changes.
-- `coverage.md` is the chapter inventory. Split source material at `^## ` boundaries, record every section, and mark each as covered, deferred with a reason, or not-applicable with a reason. Silent omission is a gate failure.
+- `coverage.md` is the chapter inventory. Split source material at `^## ` boundaries, record every section with its source anchor, EARS refs, target node/edge refs, AC refs, and owner task, and mark each as covered, deferred with a reason, or not-applicable with a reason. Silent omission is a gate failure.
 - A single PRD is allowed for small work only when it remains within one focused context load and still contains the same requirements, contracts, tasks, and verification roles.
 
 The full packet may be reviewed by a human, but execution must use progressive disclosure. Reading more text is not a substitute for a current, bounded context packet.
@@ -203,6 +203,21 @@ The map-only task passes only when all applicable rows have evidence:
 
 For map-only validation, `Target Graph`, `Change Graph`, `planned`, `changed`, `implemented`, and `removed` are out of scope. Future implementation may start only after a separate approved Change Packet is created.
 
+## Audit Hardening Rules
+
+The code network gate must also catch failure modes that structural indexing alone cannot see:
+
+- **NULL semantics:** When a SQL `UNIQUE` key or `ON CONFLICT` includes a nullable column, declare the chosen `sentinel`, `partial_index`, or `coalesce_expression_index` behavior. If the decision is not approved, mark it `blocked`; include a duplicate-row query and its result.
+- **SQL integrity:** Every SQL table contract includes `PRAGMA foreign_key_check` and a duplicate/uniqueness check where applicable. A schema declaration is not runtime integrity evidence.
+- **Strategy parameters:** A named algorithm or policy (`exponential`, `ebbinghaus`, `FSRS`, or similar) must specify executable parameters, trigger condition, target data, and integration entrypoint. Missing parameters are `blocked` and cannot enter an implementation milestone.
+- **Failure observability:** `degraded-with-warning` must emit warnings, logs, or counters and must prove that dependency failure is distinguishable from a legitimate empty result. Never map both to the same empty value.
+- **Implementation state:** Current-state audits must classify a contract as `unimplemented`, `implemented-but-broken`, `data-corrupted`, or `implemented`. `data-corrupted` requires real data-audit evidence and a cleanup plan before downstream work is accepted.
+- **Review evidence:** Findings start as `proposed`. `verified` requires independent evidence; `rejected` findings with premises require premise verification. Rate limits, HTTP 429, low vote counts, or incomplete audit coverage are `inconclusive`, not proof of absence.
+- **Cross-concept ownership:** If a behavior crosses source chapters, triggers, lifecycles, or outputs, split it into an independent requirement/AC and assign an owner task or owner artifact. Artifact layout must not silently drop cross-chapter behavior.
+- **Milestone dependencies:** P0 data-integrity and safety tasks block later milestones. Couple logic repairs with required historical cleanup or isolation fixes; do not allow a partial repair to pass alone.
+
+The strategy parameters must be concrete enough for a task to implement without inventing values. For each requirement, classify AC coverage as `happy`, `edge`, `error`, `non-functional`, `data-integrity`, and `safety`. If a category is not applicable, write `N/A` and the reason.
+
 ## Context Provider and Code Network
 
 Text describing an interface is not evidence that the implementation network is complete. Before code changes, create a `Context Packet` for the requested change:
@@ -219,6 +234,12 @@ Context Provider: tool/command and version used to obtain the evidence
 Graph artifacts: snapshot + diff + stable node/edge IDs
 Storage contracts: writer(s) + reader(s) + state consumers + runtime visibility
 Source coverage: every `##` section mapped or explicitly deferred
+Audit coverage: reviewers, independent verification, limitations, and inconclusive conditions
+NULL semantics / duplicate query / `PRAGMA foreign_key_check`
+Strategy parameters / trigger / target / entrypoint
+Failure observability: warnings/logs/counters and failure-vs-empty distinction
+Implementation state: unimplemented / implemented-but-broken / data-corrupted / implemented
+Review premise verification and owner task for cross-chapter behavior
 ```
 
 Prefer providers in this order:
@@ -801,6 +822,13 @@ handoff:
 | Reader exists without a writer | Record writer/reader closure or an explicit owning milestone |
 | Written state is never consumed | Add state reachability AC and a consumer for every non-terminal state |
 | Enum values lose their semantics | Map every enum value to producer, consumer, and schema constraint |
+| Nullable unique key or `ON CONFLICT` is treated as safe | Declare NULL semantics and run a duplicate-row query |
+| SQL integrity is inferred from schema only | Run `PRAGMA foreign_key_check` and record its result |
+| Strategy name has no implementable parameters | Add parameters, trigger, target, and entrypoint, or block the task |
+| Degraded failure looks like an empty result | Add warning/log/counter evidence and a failure-vs-empty assertion |
+| Corrupted data is called unimplemented | Query real data, classify the state, and attach a cleanup plan |
+| Review vote is treated as proof | Require independent verification; mark limited evidence inconclusive |
+| Cross-chapter behavior disappears between artifacts | Add an owner task/artifact and an explicit coverage row |
 | Source chapter silently disappears | Split at `^## `, generate a chapter inventory, and record defer/N/A reasons |
 | Code review finding is accepted by vote alone | Mark it proposed/inconclusive until independent evidence verifies it |
 | "Not implemented" is inferred from code only | Query real data/runtime state and distinguish unimplemented, broken, and corrupted |

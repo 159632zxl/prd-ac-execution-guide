@@ -79,6 +79,15 @@ RECOMMENDED_PHRASES = [
     "dependency graph",
     "task graph",
     "不得强制完整阅读",
+    "Audit Hardening",
+    "NULL semantics",
+    "PRAGMA foreign_key_check",
+    "strategy parameters",
+    "degraded-with-warning",
+    "data-corrupted",
+    "premise verification",
+    "audit coverage",
+    "owner task",
 ]
 
 AC_CATEGORIES = [

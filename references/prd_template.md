@@ -128,7 +128,7 @@ changes/<change-id>/
 - 每个阶段只读取 manifest、当前 Stage Packet 和明确引用的上下文，不强制完整阅读整个变更包。
 - 每个任务必须声明需要读取的 Stage Packet；阶段切换时更新 manifest。
 - 任务使用 `task graph` 和 `dependency graph` 表达执行顺序与代码关系，不用孤立的文件清单替代。
-- `coverage.md` 必须按 `^## ` 标题边界记录原始章节到 EARS、节点/边和 AC 的覆盖关系；延期或不适用必须写原因。
+- `coverage.md` 必须按 `^## ` 标题边界记录原始章节到 EARS、目标节点/边、AC、source anchor 和 owner task 的覆盖关系；延期或不适用必须写原因。
 - `graph-snapshot.json`、`graph-diff.json` 必须符合 `references/graph-evidence.schema.json`，并在每个最小任务后更新。
 - 单文档只适用于小型、单边界、能在一个上下文负载内完成的工作。
 
@@ -177,6 +177,30 @@ structure exists
 预期为空时必须写 `intentionally empty`、原因和 owning milestone。状态没有消费者、schema 枚举不一致、只有结构测试没有运行时证据，都属于 FAIL。
 
 State reachability: 每个写入状态必须有下游消费者或显式终态声明。
+
+### Audit Hardening
+
+涉及持久化、策略、降级路径或审计结论时，必须补齐以下字段和验证：
+
+```text
+NULL semantics: sentinel | partial_index | coalesce_expression_index | blocked
+Duplicate query and result:
+PRAGMA foreign_key_check and result:
+Strategy name / strategy parameters / trigger / target / entrypoint:
+Failure mode: normal | degraded-with-warning
+Observability evidence: warnings / logs / counters
+Failure distinguishable from legitimate empty result: yes | no
+Implementation state: unimplemented | implemented-but-broken | data-corrupted | implemented
+Data audit evidence:
+Cleanup plan:
+Review status: proposed | verified | rejected | inconclusive
+Independent verification:
+Premise verification:
+Audit coverage: complete | partial | inconclusive
+Owner task / owner artifact for cross-chapter behavior:
+```
+
+`UNIQUE` or `ON CONFLICT` involving a nullable SQL field must declare NULL semantics and run a duplicate-row query. SQL contracts must run `PRAGMA foreign_key_check`. A named strategy must define strategy parameters, trigger, target, and entrypoint or be `blocked`. `degraded-with-warning` must leave observable warnings/logs/counters and distinguish failure from a real empty result. `data-corrupted` requires real data-audit evidence and a cleanup plan. Review findings start as `proposed`; rejection premises require independent premise verification, and rate limits/429/low-vote/incomplete audit coverage are `inconclusive`. Every cross-chapter behavior needs an owner task or owner artifact.
 
 ---
 
@@ -408,6 +432,13 @@ Context Provider:
 Graph artifacts: graph-snapshot.json / graph-diff.json
 Storage contracts: writer(s) / reader(s) / state consumers
 Runtime visibility:
+Audit coverage:
+NULL semantics / duplicate query / `PRAGMA foreign_key_check`:
+Strategy parameters / trigger / target / entrypoint:
+Failure observability:
+Implementation state / data audit evidence / cleanup plan:
+Review premise verification:
+Owner task / owner artifact:
 ```
 
 ### 3.3 核心接口
@@ -426,8 +457,12 @@ state values:
 state semantics:
 state producers:
 state consumers:
+state deferred milestone:
 enum values:
 schema enum values:
+enum semantics:
+enum producers:
+enum consumers:
 expected runtime state: non-empty | intentionally empty | not applicable
 runtime evidence:
 intentional empty reason:

@@ -25,6 +25,9 @@ GRAPH_TYPES = {"observed", "target", "change"}
 COVERAGE_STATUSES = {"complete", "partial", "unknown"}
 FRESHNESS = {"current", "stale", "unknown"}
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,64}$")
+NULL_SEMANTICS = {"sentinel", "partial_index", "coalesce_expression_index", "blocked"}
+IMPLEMENTATION_STATES = {"unimplemented", "implemented-but-broken", "data-corrupted", "implemented"}
+STORAGE_KINDS = {"sql_table", "sql_field", "cache", "event", "interface", "file", "other"}
 
 
 def _is_nonempty_string(value: Any) -> bool:
@@ -37,6 +40,21 @@ def _is_sha(value: Any) -> bool:
 
 def _as_list(value: Any) -> list[Any] | None:
     return value if isinstance(value, list) else None
+
+
+def _validate_source_anchor(anchor: Any, label: str, errors: list[str]) -> None:
+    if not isinstance(anchor, dict):
+        errors.append(f"{label} source_anchor must be an object")
+        return
+    if not _is_nonempty_string(anchor.get("path")):
+        errors.append(f"{label} source_anchor.path must be non-empty")
+    if not isinstance(anchor.get("start_line"), int) or anchor["start_line"] < 1:
+        errors.append(f"{label} source_anchor.start_line is invalid")
+    if not isinstance(anchor.get("end_line"), int) or anchor["end_line"] < 1:
+        errors.append(f"{label} source_anchor.end_line is invalid")
+    if isinstance(anchor.get("start_line"), int) and isinstance(anchor.get("end_line"), int):
+        if anchor["end_line"] < anchor["start_line"]:
+            errors.append(f"{label} source_anchor end_line precedes start_line")
 
 
 def _validate_common(item: dict[str, Any], label: str, errors: list[str], graph_type: str) -> None:
@@ -69,18 +87,7 @@ def _validate_anchor(item: dict[str, Any], label: str, errors: list[str], graph_
         errors.append(f"{label} observed evidence requires source_anchor")
     if anchor is None:
         return
-    if not isinstance(anchor, dict):
-        errors.append(f"{label} source_anchor must be an object or null")
-        return
-    if not _is_nonempty_string(anchor.get("path")):
-        errors.append(f"{label} source_anchor.path must be non-empty")
-    if not isinstance(anchor.get("start_line"), int) or anchor["start_line"] < 1:
-        errors.append(f"{label} source_anchor.start_line is invalid")
-    if not isinstance(anchor.get("end_line"), int) or anchor["end_line"] < 1:
-        errors.append(f"{label} source_anchor.end_line is invalid")
-    if isinstance(anchor.get("start_line"), int) and isinstance(anchor.get("end_line"), int):
-        if anchor["end_line"] < anchor["start_line"]:
-            errors.append(f"{label} source_anchor end_line precedes start_line")
+    _validate_source_anchor(anchor, label, errors)
 
 
 def _validate_source_coverage(document: dict[str, Any], errors: list[str]) -> None:
@@ -106,12 +113,31 @@ def _validate_source_coverage(document: dict[str, Any], errors: list[str]) -> No
             errors.append(f"{label} status is invalid")
         if not isinstance(section.get("requirement_refs"), list):
             errors.append(f"{label} requirement_refs must be a list")
+        if not isinstance(section.get("ears_refs"), list):
+            errors.append(f"{label} ears_refs must be a list")
+        if not isinstance(section.get("target_node_refs"), list):
+            errors.append(f"{label} target_node_refs must be a list")
+        if not isinstance(section.get("target_edge_refs"), list):
+            errors.append(f"{label} target_edge_refs must be a list")
         if not isinstance(section.get("ac_refs"), list):
             errors.append(f"{label} ac_refs must be a list")
         if status == "covered" and not section.get("requirement_refs"):
             errors.append(f"{label} covered requires requirement_refs")
+        if status == "covered" and not section.get("ears_refs"):
+            errors.append(f"{label} covered requires ears_refs")
+        if status == "covered" and not section.get("target_node_refs"):
+            errors.append(f"{label} covered requires target_node_refs")
+        if status == "covered" and not section.get("target_edge_refs"):
+            errors.append(f"{label} covered requires target_edge_refs")
         if status == "covered" and not section.get("ac_refs"):
             errors.append(f"{label} covered requires ac_refs")
+        if status == "covered":
+            if not _is_nonempty_string(section.get("owner_task")):
+                errors.append(f"{label} covered requires owner task")
+            if section.get("source_anchor") is None:
+                errors.append(f"{label} covered requires source_anchor")
+            else:
+                _validate_source_anchor(section.get("source_anchor"), label, errors)
         if status in {"deferred", "not-applicable"} and not _is_nonempty_string(section.get("explicit_reason")):
             errors.append(f"{label} {status} requires explicit_reason")
 
@@ -121,13 +147,19 @@ def _validate_reviews(document: dict[str, Any], errors: list[str]) -> None:
     if not isinstance(findings, list):
         errors.append("review_findings must be a list")
         return
+    finding_ids: set[str] = set()
     for index, finding in enumerate(findings):
         label = f"review_findings[{index}]"
         if not isinstance(finding, dict):
             errors.append(f"{label} must be an object")
             continue
-        if not _is_nonempty_string(finding.get("finding_id")):
+        finding_id = finding.get("finding_id")
+        if not _is_nonempty_string(finding_id):
             errors.append(f"{label} finding_id must be non-empty")
+        elif finding_id in finding_ids:
+            errors.append(f"duplicate finding_id: {finding_id}")
+        else:
+            finding_ids.add(finding_id)
         status = finding.get("status")
         if status not in {"proposed", "verified", "rejected", "inconclusive"}:
             errors.append(f"{label} status is invalid")
@@ -138,6 +170,31 @@ def _validate_reviews(document: dict[str, Any], errors: list[str]) -> None:
             independent = finding.get("independent_verification")
             if not isinstance(independent, list) or not independent:
                 errors.append(f"{label} verified requires independent_verification")
+        premises = finding.get("premises", [])
+        if not isinstance(premises, list):
+            errors.append(f"{label} premises must be a list")
+        elif status == "rejected" and premises:
+            premise_verification = finding.get("premise_verification")
+            if not isinstance(premise_verification, list) or not premise_verification:
+                errors.append(f"{label} rejected premises require premise_verification")
+        if status == "inconclusive" and not _is_nonempty_string(finding.get("inconclusive_reason")):
+            errors.append(f"{label} inconclusive requires inconclusive_reason")
+
+
+def _validate_audit_coverage(document: dict[str, Any], errors: list[str]) -> None:
+    audit = document.get("audit_coverage")
+    if not isinstance(audit, dict):
+        errors.append("audit_coverage must be an object")
+        return
+    if audit.get("status") not in {"complete", "partial", "inconclusive"}:
+        errors.append("audit_coverage.status is invalid")
+    for field in ("reviewers", "independent_verification", "limitations"):
+        if not isinstance(audit.get(field), list):
+            errors.append(f"audit_coverage.{field} must be a list")
+    if audit.get("status") == "complete" and not audit.get("independent_verification"):
+        errors.append("audit_coverage complete requires independent_verification")
+    if audit.get("status") in {"partial", "inconclusive"} and not audit.get("limitations"):
+        errors.append("audit_coverage partial or inconclusive requires limitations")
 
 
 def _validate_contracts(
@@ -192,10 +249,14 @@ def _validate_contracts(
         state_semantics = contract.get("state_semantics")
         state_producers = contract.get("state_producers")
         state_consumers = contract.get("state_consumers")
+        state_deferred_milestones = contract.get("state_deferred_milestones", {})
         terminal_states = set(contract.get("terminal_states", []))
         if not isinstance(state_values, list) or not isinstance(state_semantics, dict) or not isinstance(state_producers, dict) or not isinstance(state_consumers, dict):
             errors.append(f"{label} state_values, state_semantics, state_producers, and state_consumers are required")
         else:
+            if not isinstance(state_deferred_milestones, dict):
+                errors.append(f"{label} state_deferred_milestones must be an object")
+                state_deferred_milestones = {}
             for state in state_values:
                 if not _is_nonempty_string(state_semantics.get(state)):
                     errors.append(f"{label} state has no semantic description: {state}")
@@ -207,7 +268,8 @@ def _validate_contracts(
                         errors.append(f"{label} state producer does not reference a node: {producer}")
                 consumers = state_consumers.get(state, [])
                 if not consumers and state not in terminal_states:
-                    errors.append(f"{label} state has no consumer or terminal declaration: {state}")
+                    if not _is_nonempty_string(state_deferred_milestones.get(state)):
+                        errors.append(f"{label} state has no consumer, terminal, or deferred milestone: {state}")
                 for consumer in consumers:
                     if consumer not in node_ids:
                         errors.append(f"{label} state consumer does not reference a node: {consumer}")
@@ -218,6 +280,27 @@ def _validate_contracts(
             errors.append(f"{label} enum_values and schema_enum_values are required")
         elif set(enum_values) != set(schema_values):
             errors.append(f"{label} enum_values and schema_enum_values differ")
+        enum_semantics = contract.get("enum_semantics")
+        enum_producers = contract.get("enum_producers")
+        enum_consumers = contract.get("enum_consumers")
+        if not isinstance(enum_semantics, dict) or not isinstance(enum_producers, dict) or not isinstance(enum_consumers, dict):
+            errors.append(f"{label} enum_semantics, enum_producers, and enum_consumers are required")
+        elif isinstance(enum_values, list):
+            for value in enum_values:
+                if not _is_nonempty_string(enum_semantics.get(value)):
+                    errors.append(f"{label} enum value has no semantic description: {value}")
+                producers = enum_producers.get(value, [])
+                if not isinstance(producers, list) or not producers:
+                    errors.append(f"{label} enum value has no producer: {value}")
+                for producer in producers:
+                    if producer not in node_ids:
+                        errors.append(f"{label} enum producer does not reference a node: {producer}")
+                consumers = enum_consumers.get(value, [])
+                if not isinstance(consumers, list) or not consumers:
+                    errors.append(f"{label} enum value has no consumer: {value}")
+                for consumer in consumers:
+                    if consumer not in node_ids:
+                        errors.append(f"{label} enum consumer does not reference a node: {consumer}")
 
         expected = contract.get("expected_runtime_state")
         runtime_evidence = contract.get("runtime_evidence")
@@ -237,6 +320,57 @@ def _validate_contracts(
         if contract.get("status") == "verified" and not contract.get("verification_evidence"):
             errors.append(f"{label} verified requires verification_evidence")
 
+        storage_kind = contract.get("storage_kind")
+        if storage_kind is not None and storage_kind not in STORAGE_KINDS:
+            errors.append(f"{label} storage_kind is invalid")
+        if storage_kind == "sql_table":
+            foreign_key_check = contract.get("foreign_key_check")
+            if not _is_nonempty_string(foreign_key_check) or "pragma foreign_key_check" not in foreign_key_check.lower():
+                errors.append(f"{label} sql_table requires foreign_key_check PRAGMA")
+
+        unique_keys = contract.get("unique_keys")
+        nullable_columns = contract.get("nullable_unique_columns", [])
+        if unique_keys is not None and not isinstance(unique_keys, list):
+            errors.append(f"{label} unique_keys must be a list")
+        if not isinstance(nullable_columns, list):
+            errors.append(f"{label} nullable_unique_columns must be a list")
+        elif nullable_columns:
+            if not isinstance(unique_keys, list) or not set(nullable_columns).issubset(set(unique_keys)):
+                errors.append(f"{label} nullable_unique_columns must be included in unique_keys")
+            if contract.get("null_semantics") not in NULL_SEMANTICS:
+                errors.append(f"{label} nullable unique keys require null_semantics")
+            elif contract.get("null_semantics") == "blocked" and not _is_nonempty_string(contract.get("null_semantics_blocking_reason")):
+                errors.append(f"{label} blocked null_semantics requires a blocking reason")
+            if not _is_nonempty_string(contract.get("duplicate_query")):
+                errors.append(f"{label} nullable unique keys require duplicate_query")
+
+        strategy_name = contract.get("strategy_name")
+        if strategy_name is not None:
+            strategy_status = contract.get("strategy_status")
+            if strategy_status == "blocked":
+                if not _is_nonempty_string(contract.get("strategy_blocking_reason")):
+                    errors.append(f"{label} blocked strategy requires strategy_blocking_reason")
+            else:
+                for field in ("strategy_parameters", "strategy_trigger", "strategy_target", "strategy_entrypoint"):
+                    value = contract.get(field)
+                    if not value or (isinstance(value, str) and not value.strip()):
+                        errors.append(f"{label} strategy requires {field}")
+
+        if contract.get("failure_mode") == "degraded-with-warning":
+            if not isinstance(contract.get("observability_evidence"), list) or not contract.get("observability_evidence"):
+                errors.append(f"{label} degraded-with-warning requires observability evidence")
+            if contract.get("distinguishes_failure_from_empty") is not True:
+                errors.append(f"{label} degraded-with-warning must distinguish failure from empty")
+
+        implementation_state = contract.get("implementation_state")
+        if implementation_state not in IMPLEMENTATION_STATES:
+            errors.append(f"{label} implementation_state is invalid")
+        elif implementation_state == "data-corrupted":
+            if not isinstance(contract.get("data_audit_evidence"), list) or not contract.get("data_audit_evidence"):
+                errors.append(f"{label} data-corrupted requires data_audit_evidence")
+            if not _is_nonempty_string(contract.get("cleanup_plan")):
+                errors.append(f"{label} data-corrupted requires cleanup_plan")
+
 
 def validate_document(document: Any, map_only: bool = False) -> list[str]:
     """Return all validation errors for one normalized graph snapshot."""
@@ -244,7 +378,7 @@ def validate_document(document: Any, map_only: bool = False) -> list[str]:
     errors: list[str] = []
     if not isinstance(document, dict):
         return ["document must be a JSON object"]
-    for field in ("schema_version", "artifact_type", "graph_type", "repository", "provider", "coverage", "nodes", "edges", "contracts"):
+    for field in ("schema_version", "artifact_type", "graph_type", "repository", "provider", "coverage", "source_coverage", "audit_coverage", "nodes", "edges", "contracts"):
         if field not in document:
             errors.append(f"missing top-level field: {field}")
     if document.get("schema_version") != "1.0":
@@ -292,6 +426,7 @@ def validate_document(document: Any, map_only: bool = False) -> list[str]:
             errors.append("map-only coverage.status cannot be unknown")
 
     _validate_source_coverage(document, errors)
+    _validate_audit_coverage(document, errors)
     _validate_reviews(document, errors)
     if graph_type == "change":
         if not _is_sha(document.get("baseline_sha")):
@@ -368,6 +503,22 @@ def validate_document(document: Any, map_only: bool = False) -> list[str]:
             errors.append(f"{label} map-only status must be observed, verified, blocked, or unresolved")
         if edge.get("kind") == "dynamic" and edge.get("status") != "unresolved":
             errors.append(f"{label} dynamic edge must remain unresolved")
+        if edge.get("status") == "unresolved":
+            if not _is_nonempty_string(edge.get("unresolved_reason")):
+                errors.append(f"{label} unresolved requires unresolved_reason")
+            if not _is_nonempty_string(edge.get("next_query")):
+                errors.append(f"{label} unresolved requires next_query")
+
+    for index, section in enumerate(document.get("source_coverage", [])):
+        if not isinstance(section, dict):
+            continue
+        label = f"source_coverage[{index}]"
+        for ref in section.get("target_node_refs", []):
+            if ref not in node_ids:
+                errors.append(f"{label} target_node_refs references unknown node: {ref}")
+        for ref in section.get("target_edge_refs", []):
+            if ref not in edge_ids:
+                errors.append(f"{label} target_edge_refs references unknown edge: {ref}")
 
     incident_nodes = {endpoint for edge in edges for endpoint in (edge.get("from"), edge.get("to"))}
     for node in nodes:

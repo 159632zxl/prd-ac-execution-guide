@@ -94,9 +94,35 @@ Split the source material at `^## ` heading boundaries. Keep one row for every s
 | DESIGN-01 | source.md:## Section | REQ-01 | fn:writer -> table:items -> fn:reader | M1-DONE-01 | covered | - |
 ```
 
-The normalized `source_coverage` rows also carry `requirement_refs` and `ac_refs`; a `covered` section must have both.
+The normalized `source_coverage` rows also carry `requirement_refs`, `ears_refs`, `target_node_refs`, `target_edge_refs`, `ac_refs`, `owner_task`, and `source_anchor`; a `covered` section must have all of them.
 
 Allowed status values: `covered`, `deferred`, `not-applicable`. `deferred` and `not-applicable` require a reason and an owning milestone or approval.
+
+## Audit Hardening
+
+Every persisted or policy contract must carry the following checks when applicable:
+
+```text
+NULL semantics: sentinel | partial_index | coalesce_expression_index | blocked
+Duplicate query and result:
+PRAGMA foreign_key_check and result:
+Strategy name:
+Strategy parameters:
+Strategy trigger:
+Strategy target:
+Strategy entrypoint:
+Failure mode: normal | degraded-with-warning
+Observability evidence: warnings / logs / counters
+Failure distinguishable from legitimate empty result: yes | no
+Implementation state: unimplemented | implemented-but-broken | data-corrupted | implemented
+Data audit evidence:
+Cleanup plan:
+Owner task / owner artifact for cross-chapter behavior:
+Audit coverage: complete | partial | inconclusive
+Premise verification for rejected findings:
+```
+
+`degraded-with-warning` cannot map dependency failure to the same empty value as a real no-match result. A named strategy must define strategy parameters, trigger, target, and entrypoint or be `blocked`. `data-corrupted` requires real data evidence and a cleanup plan. Review findings remain `proposed` until independently verified; rejection premise verification is required before a premise-based rejection; rate limits, 429s, low vote counts, and incomplete audit coverage are `inconclusive`. Every cross-chapter behavior needs an owner task or owner artifact.
 
 ## graph-snapshot.json and graph-diff.json
 
@@ -110,6 +136,7 @@ graph-snapshot.json:
   provider: name / version / command / generated_at
   coverage: scope / status / paths / excluded_paths / limitations
   source_coverage:
+  audit_coverage: reviewers / independent_verification / limitations
   nodes: stable node_id + kind + status + path + symbol + evidence
   edges: stable edge_id + kind + from + to + evidence
   contracts: writers + readers + state consumers + enum/runtime evidence
@@ -177,12 +204,31 @@ State values:
 State semantics:
 State producers:
 State consumers:
+State deferred milestone:
 Enum values:
 Schema enum values:
+Enum semantics:
+Enum producers:
+Enum consumers:
 Expected runtime state: non-empty | intentionally empty | not applicable
 Runtime evidence:
 Intentional empty reason:
 Intentional empty milestone:
+Storage kind: sql_table | sql_field | cache | event | interface | file | other
+NULL semantics:
+Duplicate query:
+PRAGMA foreign_key_check:
+Strategy parameters:
+Strategy trigger:
+Strategy target:
+Strategy entrypoint:
+Failure mode:
+Observability evidence:
+Distinguishes failure from empty:
+Implementation state: unimplemented | implemented-but-broken | data-corrupted | implemented
+Data audit evidence:
+Cleanup plan:
+Owner task / owner artifact:
 Forbidden:
 Pre-change evidence:
 Post-change validation:
