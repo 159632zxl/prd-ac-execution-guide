@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -290,6 +291,80 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
 
 
 class GraphEvidenceTests(unittest.TestCase):
+
+    @staticmethod
+    def _iter_paths(value: object, path: tuple[object, ...] = ()):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_path = path + (key,)
+                yield child_path, child
+                yield from GraphEvidenceTests._iter_paths(child, child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                child_path = path + (index,)
+                yield child_path, child
+                yield from GraphEvidenceTests._iter_paths(child, child_path)
+
+    @staticmethod
+    def _set_path(document: dict, path: tuple[object, ...], value: object) -> None:
+        target = document
+        for part in path[:-1]:
+            target = target[part]
+        target[path[-1]] = value
+
+    @staticmethod
+    def _wrong_type(value: object) -> object | None:
+        if isinstance(value, bool):
+            return "not-a-boolean"
+        if isinstance(value, str):
+            return []
+        if isinstance(value, list):
+            return {}
+        if isinstance(value, dict):
+            return []
+        if type(value) in (int, float):
+            return []
+        return None
+
+    def test_all_field_type_mutations_are_safe_and_fail_closed(self) -> None:
+        hostile_values = [None, True, 0, 1.5, "", "invalid", [], {}, [1], {"x": 1}]
+        for graph_type in ("observed", "target", "change"):
+            document = valid_snapshot(graph_type)
+            if graph_type == "change":
+                document.update(
+                    {
+                        "baseline_sha": "b" * 40,
+                        "current_sha": "a" * 40,
+                        "diff": {
+                            "added_nodes": [],
+                            "removed_nodes": [],
+                            "changed_nodes": [],
+                            "added_edges": [],
+                            "removed_edges": [],
+                            "changed_edges": [],
+                            "unresolved": [],
+                            "impact": [],
+                            "verification_evidence": ["diff query"],
+                        },
+                    }
+                )
+            self.assertEqual(validate_document(document), [])
+            for path, original in list(self._iter_paths(document)):
+                for hostile in hostile_values:
+                    mutated = copy.deepcopy(document)
+                    self._set_path(mutated, path, hostile)
+                    with self.subTest(graph_type=graph_type, path=path, hostile=hostile):
+                        try:
+                            errors = validate_document(mutated)
+                        except Exception as exc:  # pragma: no cover - assertion carries the regression detail
+                            self.fail(f"validator raised {type(exc).__name__}: {exc}")
+                        self.assertIsInstance(errors, list)
+                wrong = self._wrong_type(original)
+                if wrong is not None:
+                    mutated = copy.deepcopy(document)
+                    self._set_path(mutated, path, wrong)
+                    with self.subTest(graph_type=graph_type, path=path, wrong=wrong):
+                        self.assertTrue(validate_document(mutated))
     def test_valid_observed_snapshot_passes(self) -> None:
         self.assertEqual(validate_document(valid_snapshot()), [])
 
@@ -326,6 +401,259 @@ class GraphEvidenceTests(unittest.TestCase):
         document.pop("test_chains")
         errors = validate_document(document)
         self.assertTrue(any("test_chains" in error for error in errors))
+
+    def test_expected_runtime_state_is_required_and_enum_checked(self) -> None:
+        for value in ("nonempty", "non_empty", "Non-Empty", "non-empty ", "whatever", "", None):
+            document = valid_snapshot()
+            document["contracts"][0]["expected_runtime_state"] = value
+            document["contracts"][0]["runtime_evidence"] = []
+            errors = validate_document(document)
+            self.assertTrue(any("expected_runtime_state" in error for error in errors), value)
+
+        document = valid_snapshot()
+        document["contracts"][0].pop("expected_runtime_state")
+        errors = validate_document(document)
+        self.assertTrue(any("expected_runtime_state" in error for error in errors))
+
+    def test_failure_mode_enum_is_checked_before_degraded_gate(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["failure_mode"] = "degraded_with_warning"
+        contract.pop("observability_evidence", None)
+        contract.pop("distinguishes_failure_from_empty", None)
+        errors = validate_document(document)
+        self.assertTrue(any("failure_mode" in error for error in errors))
+
+    def test_target_anchor_field_is_required_but_planned_anchor_may_be_null(self) -> None:
+        document = valid_snapshot("target")
+        document["edges"][0].pop("source_anchor")
+        errors = validate_document(document)
+        self.assertTrue(any("source_anchor" in error for error in errors))
+
+        document = valid_snapshot("target")
+        document["edges"][0]["source_anchor"] = None
+        self.assertEqual(validate_document(document), [])
+
+        for graph_type, status in (("target", "implemented"), ("change", "changed")):
+            document = valid_snapshot(graph_type)
+            if graph_type == "change":
+                document["baseline_sha"] = "b" * 40
+                document["current_sha"] = "a" * 40
+                document["diff"] = {
+                    "added_nodes": [],
+                    "removed_nodes": [],
+                    "changed_nodes": [],
+                    "added_edges": [],
+                    "removed_edges": [],
+                    "changed_edges": [],
+                    "unresolved": [],
+                    "impact": [],
+                    "verification_evidence": ["diff query"],
+                }
+            document["nodes"][0]["status"] = status
+            document["nodes"][0]["source_anchor"] = None
+            errors = validate_document(document)
+            self.assertTrue(any("source_anchor" in error for error in errors), graph_type)
+
+    def test_target_contract_verification_evidence_field_is_required(self) -> None:
+        document = valid_snapshot("target")
+        document["contracts"][0].pop("verification_evidence")
+        errors = validate_document(document)
+        self.assertTrue(any("verification_evidence" in error for error in errors))
+
+    def test_malicious_types_report_errors_without_crashing(self) -> None:
+        mutations = [
+            ("graph_type list", lambda d: d.__setitem__("graph_type", [])),
+            ("node status list", lambda d: d["nodes"][0].__setitem__("status", [])),
+            ("edge kind list", lambda d: d["edges"][0].__setitem__("kind", [])),
+            ("non-dict edge", lambda d: d["edges"].append(123)),
+            ("source coverage refs integer", lambda d: d["source_coverage"][0].__setitem__("target_node_refs", 123)),
+            ("terminal states integer", lambda d: d["contracts"][0].__setitem__("terminal_states", 123)),
+            ("state producer integer", lambda d: d["contracts"][0]["state_producers"].__setitem__("active", 123)),
+            ("state value list", lambda d: d["contracts"][0].__setitem__("state_values", [["active"]])),
+            ("enum value list", lambda d: d["contracts"][0].__setitem__("enum_values", [["active"]])),
+            ("nullable unique column list", lambda d: d["contracts"][0].__setitem__("nullable_unique_columns", [["active"]])),
+            ("test node refs integer", lambda d: d["test_chains"][0].__setitem__("test_node_refs", 123)),
+            ("test chain status list", lambda d: d["test_chains"][0].__setitem__("status", [])),
+            ("test chain entrypoint list", lambda d: d["test_chains"][0].__setitem__("entrypoint_node_id", [])),
+        ]
+        for label, mutation in mutations:
+            document = valid_snapshot()
+            mutation(document)
+            try:
+                errors = validate_document(document)
+            except Exception as exc:  # pragma: no cover - failure message is the assertion
+                self.fail(f"{label} raised {type(exc).__name__}: {exc}")
+            self.assertTrue(errors, label)
+
+    def test_unhashable_ids_refs_and_enums_report_errors_without_crashing(self) -> None:
+        mutations = [
+            ("node id list", lambda d: d["nodes"][0].__setitem__("node_id", [])),
+            ("edge id dict", lambda d: d["edges"][0].__setitem__("edge_id", {})),
+            ("edge endpoint list", lambda d: d["edges"][0].__setitem__("from", [])),
+            ("contract storage id dict", lambda d: d["contracts"][0].__setitem__("storage_node_id", {})),
+            ("writer ref list", lambda d: d["contracts"][0]["writers"].__setitem__(0, [])),
+            ("reader ref dict", lambda d: d["contracts"][0]["readers"].__setitem__(0, {})),
+            ("state producer ref list", lambda d: d["contracts"][0]["state_producers"]["active"].__setitem__(0, [])),
+            ("enum consumer ref dict", lambda d: d["contracts"][0]["enum_consumers"]["active"].__setitem__(0, {})),
+            ("required role scalar", lambda d: d["test_chains"][0]["required_roles"].__setitem__("producer", 1)),
+            ("required role ref list", lambda d: d["test_chains"][0]["required_roles"]["producer"].__setitem__(0, [])),
+            ("uncovered ref list", lambda d: d["test_chains"][0]["uncovered_edge_refs"].append([])),
+            ("evidence kind list", lambda d: d["test_chains"][0].__setitem__("evidence_kind", [])),
+            ("test scope dict", lambda d: d["test_chains"][0].__setitem__("test_scope", {})),
+            ("top-level coverage scope list", lambda d: d["coverage"].__setitem__("scope", [])),
+            ("top-level coverage status dict", lambda d: d["coverage"].__setitem__("status", {})),
+            ("failure mode null", lambda d: d["contracts"][0].__setitem__("failure_mode", None)),
+        ]
+        for label, mutation in mutations:
+            document = valid_snapshot()
+            mutation(document)
+            try:
+                errors = validate_document(document)
+            except Exception as exc:  # pragma: no cover - failure message is the assertion
+                self.fail(f"{label} raised {type(exc).__name__}: {exc}")
+            self.assertTrue(errors, label)
+
+    def test_node_anchor_matches_schema_optional_field_and_observed_evidence_rule(self) -> None:
+        document = valid_snapshot("target")
+        document["nodes"][0].pop("source_anchor")
+        self.assertEqual(validate_document(document), [])
+
+        document = valid_snapshot("observed")
+        document["nodes"][0].pop("source_anchor")
+        errors = validate_document(document)
+        self.assertTrue(any("source_anchor" in error for error in errors))
+
+    def test_evidence_arrays_require_nonempty_strings(self) -> None:
+        mutations = [
+            ("contract runtime_evidence", lambda d: d["contracts"][0].__setitem__("runtime_evidence", [[]])),
+            ("contract verification_evidence", lambda d: d["contracts"][0].__setitem__("verification_evidence", [{}])),
+            ("test runtime_evidence", lambda d: d["test_chains"][0].__setitem__("runtime_evidence", [""])),
+            ("test verification_evidence", lambda d: d["test_chains"][0].__setitem__("verification_evidence", [{}])),
+            ("audit independent_verification", lambda d: d["audit_coverage"].__setitem__("independent_verification", [[]])),
+        ]
+        for label, mutation in mutations:
+            document = valid_snapshot()
+            mutation(document)
+            errors = validate_document(document)
+            self.assertTrue(any(label.split()[-1] in error for error in errors), label)
+
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["failure_mode"] = "degraded-with-warning"
+        contract["observability_evidence"] = [{}]
+        contract["distinguishes_failure_from_empty"] = True
+        errors = validate_document(document)
+        self.assertTrue(any("observability_evidence" in error for error in errors))
+
+    def test_required_reference_items_and_boolean_flags_are_type_checked(self) -> None:
+        mutations = [
+            ("node entrypoint", lambda d: d["nodes"][3].__setitem__("entrypoint", "yes")),
+            ("chain requirement ref", lambda d: d["test_chains"][0]["requirement_refs"].__setitem__(0, [])),
+            ("chain AC ref", lambda d: d["test_chains"][0]["ac_refs"].__setitem__(0, {})),
+        ]
+        for label, mutation in mutations:
+            document = valid_snapshot()
+            mutation(document)
+            errors = validate_document(document)
+            self.assertTrue(errors, label)
+
+        document = valid_snapshot()
+        document["nodes"][0]["test_refs"] = None
+        errors = validate_document(document)
+        self.assertTrue(any("test_refs" in error for error in errors))
+
+    def test_change_diff_evidence_items_are_type_checked(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": [],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "unresolved": [],
+            "impact": [],
+            "verification_evidence": [[]],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("verification_evidence" in error for error in errors))
+
+    def test_source_coverage_required_fields_apply_to_deferred_sections(self) -> None:
+        document = valid_snapshot()
+        section = document["source_coverage"][0]
+        section["status"] = "deferred"
+        section["explicit_reason"] = "Deferred to the next milestone"
+        section.pop("owner_task")
+        section.pop("source_anchor")
+        errors = validate_document(document)
+        self.assertTrue(any("owner_task" in error or "owner" in error for error in errors))
+        self.assertTrue(any("source_anchor" in error for error in errors))
+
+    def test_optional_contract_fields_are_type_checked_when_present(self) -> None:
+        mutations = [
+            ("writer milestone", "writer_milestone", []),
+            ("reader milestone", "reader_milestone", {}),
+            ("foreign key check", "foreign_key_check", []),
+            ("null semantics blocking reason", "null_semantics_blocking_reason", []),
+            ("duplicate query", "duplicate_query", {}),
+            ("strategy blocking reason", "strategy_blocking_reason", []),
+            ("observability evidence", "observability_evidence", {}),
+            ("cleanup plan", "cleanup_plan", []),
+        ]
+        for label, field, value in mutations:
+            document = valid_snapshot()
+            document["contracts"][0][field] = value
+            errors = validate_document(document)
+            self.assertTrue(any(field in error for error in errors), label)
+
+        document = valid_snapshot()
+        document["contracts"][0]["distinguishes_failure_from_empty"] = "yes"
+        errors = validate_document(document)
+        self.assertTrue(any("distinguishes_failure_from_empty" in error for error in errors))
+
+    def test_schema_declared_nested_fields_are_type_checked_when_present(self) -> None:
+        mutations = [
+            ("provider capabilities", lambda d: d["provider"].__setitem__("capabilities", [{}])),
+            ("coverage limitations", lambda d: d["coverage"].__setitem__("limitations", [[]])),
+            ("review premises", lambda d: d.__setitem__("review_findings", [{
+                "finding_id": "F-01", "status": "proposed", "evidence": ["review"], "premises": [[]]
+            }])),
+            ("state semantics", lambda d: d["contracts"][0]["state_semantics"].__setitem__("active", [])),
+            ("state deferred milestone", lambda d: d["contracts"][0].__setitem__("state_deferred_milestones", {"active": []})),
+            ("strategy parameters", lambda d: d["contracts"][0].__setitem__("strategy_parameters", True)),
+            ("edge next query", lambda d: d["edges"][0].__setitem__("next_query", [])),
+            ("node exemption reason", lambda d: d["nodes"][0].__setitem__("test_exemption_reason", [])),
+            ("empty node exemption reason", lambda d: d["nodes"][0].__setitem__("test_exemption_reason", "")),
+            ("empty deferred reason", lambda d: d["test_chains"][0].__setitem__("deferred_reason", "")),
+            ("empty review reason", lambda d: d.__setitem__("review_findings", [{
+                "finding_id": "F-01", "status": "proposed", "evidence": ["review"], "inconclusive_reason": ""
+            }])),
+        ]
+        for label, mutation in mutations:
+            document = valid_snapshot()
+            mutation(document)
+            errors = validate_document(document)
+            self.assertTrue(errors, label)
+
+    def test_optional_enum_and_review_evidence_types_are_checked(self) -> None:
+        mutations = [
+            ("storage kind", lambda d: d["contracts"][0].__setitem__("storage_kind", None)),
+            ("unique keys", lambda d: d["contracts"][0].__setitem__("unique_keys", None)),
+            ("null semantics", lambda d: d["contracts"][0].__setitem__("null_semantics", None)),
+            ("review independent verification", lambda d: d.__setitem__("review_findings", [{
+                "finding_id": "F-01", "status": "proposed", "evidence": ["review"], "independent_verification": [[]]
+            }])),
+            ("unknown root field", lambda d: d.__setitem__("expected_runtime_stte", "non-empty")),
+            ("unknown contract field", lambda d: d["contracts"][0].__setitem__("expected_runtime_stte", "non-empty")),
+        ]
+        for label, mutation in mutations:
+            document = valid_snapshot()
+            mutation(document)
+            errors = validate_document(document)
+            self.assertTrue(errors, label)
 
     def test_target_snapshot_requires_requirement_refs(self) -> None:
         document = valid_snapshot("target")
@@ -671,6 +999,12 @@ class GraphEvidenceTests(unittest.TestCase):
         schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+
+    def test_schema_failure_mode_matches_validator_enum(self) -> None:
+        schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        failure_mode = schema["$defs"]["contract"]["properties"]["failure_mode"]
+        self.assertEqual(failure_mode, {"enum": ["normal", "degraded-with-warning"]})
 
 
 if __name__ == "__main__":

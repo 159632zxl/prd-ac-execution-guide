@@ -306,7 +306,7 @@
         "runtime_evidence": {"$ref": "#/$defs/evidence"},
         "status": {"$ref": "#/$defs/status"},
         "verification_evidence": {"$ref": "#/$defs/evidence"},
-        "failure_mode": {"type": "string"},
+        "failure_mode": {"enum": ["normal", "degraded-with-warning"]},
         "observability_evidence": {"$ref": "#/$defs/evidence"},
         "distinguishes_failure_from_empty": {"type": "boolean"},
         "implementation_state": {"enum": ["unimplemented", "implemented-but-broken", "data-corrupted", "implemented"]},
