@@ -64,6 +64,7 @@ changes/<change-id>/
   graph-snapshot.json   # normalized Observed or Target Graph evidence
   graph-diff.json       # baseline/current Change Graph evidence
   tasks.md              # dependency-aware vertical slices
+  test-map.md           # layered test chains and runtime evidence
   verification.md       # commands, evidence, and post-change checks
   handoff.md            # recovery state for the next agent
 ```
@@ -136,7 +137,7 @@ From-zero workflow:
 
 ```text
 Requirements -> source coverage -> Target Graph -> human confirmation of unclear boundaries
--> one vertical slice: producer -> contract -> consumer -> error path -> verification
+-> one vertical slice: producer -> contract -> consumer -> error path -> Test Chain Gate
 -> re-index -> Observed Graph -> mark verified nodes/edges
 ```
 
@@ -145,9 +146,15 @@ Refactor workflow:
 ```text
 Observed Graph -> real data/runtime audit -> baseline Git SHA
 -> Target Graph + Change Graph -> bounded subgraph change
--> re-index + entity diff/impact -> write/read/integrity/safety validation
+-> re-index + entity diff/impact -> layered Test Chain Gate -> write/read/integrity/safety validation
 -> update snapshot, diff, code-map, verification, and handoff
 ```
+
+For secondary development, keep the existing behavior as the baseline: map the
+observed chain first, add or change one bounded subgraph, then extend the
+smallest existing test chain before adding higher-level coverage. Do not treat a
+new helper, route, schema, or adapter as complete until its producer, contract,
+consumer, error path, and test entry are connected.
 
 ## Code Map Only Workflow
 
@@ -228,6 +235,7 @@ Targets: repository-relative path + symbol/signature
 Definitions: actual producers, consumers, callers, callees, exports, routes, schemas
 Edges: calls | imports | reads | writes | publishes | subscribes | validates
 Tests: existing tests and required new tests
+Test Network: test-chain IDs, levels, covered nodes/edges, error paths, and evidence
 Impact: files/symbols affected before editing
 Unknowns: unresolved names, contracts, or boundaries
 Context Provider: tool/command and version used to obtain the evidence
@@ -257,7 +265,7 @@ Every code-changing task must pass two gates:
 | Gate | Required evidence | Blocking failure |
 |---|---|---|
 | `pre-change` | Target definitions, producer/consumer edges, storage writers/readers, state consumers, tests, impact, source coverage, and baseline evidence are verified | Any required symbol, edge, writer, reader, or source section is guessed or unresolved without an approved boundary |
-| `post-change` | Re-indexed graph, build/typecheck, tests, changed exports/imports/routes/schemas, runtime write evidence, reader visibility, data-integrity/safety checks, and diff impact are checked | New unresolved edge, broken consumer, unreachable state, schema-only completion, `Ghost Interface`, or `Orphan Node` |
+| `post-change` | Re-indexed graph, layered Test Chain Gate, build/typecheck, tests, changed exports/imports/routes/schemas, runtime write evidence, reader visibility, data-integrity/safety checks, and diff impact are checked | Missing L0/L1 chain, static-only runtime claim, new unresolved edge, broken consumer, unreachable state, schema-only completion, `Ghost Interface`, or `Orphan Node` |
 
 Definitions:
 
@@ -267,6 +275,8 @@ Definitions:
 - `reader/writer closure`: every persisted table, field, cache, or event has a real writer and reader, or an explicitly named milestone for the missing side.
 - `state reachability`: every written state has a downstream consumer or an explicitly declared terminal state; a state with no consumer is a red flag.
 - `runtime visibility`: after a writer executes, a reader-side query or observable consumer can retrieve the result. Schema existence alone is not functionality evidence.
+- `Test Chain Gate`: a test node and executable evidence connected to the exact producer, contract, consumer, and error-path node/edge IDs.
+- `layered verification`: pass `L0`/`L1` before adding `L2`/`L3`/`L4`; higher coverage cannot hide a failed lower layer.
 
 No text-only interface may pass. Every interface must resolve to repository-relative paths and symbols, or be explicitly declared as a new file/symbol task with both sides of the edge planned.
 
@@ -280,6 +290,65 @@ schema/table/interface exists
 ```
 
 If the expected result is empty, record `intentionally empty`, the reason, and the milestone that owns the writer. Do not call a feature complete because an empty table or schema test passes.
+
+### Test Network / Test Chain Gate
+
+Tests are a first-class graph artifact, not a final checklist. A code map proves
+that a relationship is structurally present; a test chain proves that the
+relationship is reachable, observable, and correct at runtime.
+
+Every minimal code task must declare a `test_chain` with:
+
+```text
+chain_id:
+level: L0 | L1 | L2 | L3 | L4
+entrypoint:
+test nodes:
+code node refs:
+edge refs:
+requirement refs:
+AC refs:
+producer refs:
+contract / persistence refs:
+consumer refs:
+error path refs:
+expected output:
+command:
+static evidence:
+runtime evidence:
+uncovered or unresolved edge refs:
+test scope: targeted | full | expanded
+status: planned | implemented | verified | blocked | unresolved | deferred
+```
+
+Use the following levels:
+
+```text
+L0 Static Graph Gate
+  test entry, node/edge IDs, producer/contract/consumer topology, Ghost/Orphan checks
+L1 MVP Vertical Slice
+  input -> producer -> contract -> consumer -> observable output -> error path
+L2 Component and Contract Tests
+  state transitions, read/write contracts, enum closure, empty-vs-error behavior
+L3 Integration / E2E
+  real database, events, routes, external adapters, and cross-module reachability
+L4 Integrity / Safety / Non-functional
+  foreign keys, duplicate data, isolation, permissions, security, migration, and performance
+```
+
+`L0` and `L1` block every minimal implementation task. Add `L2`, then `L3` and
+`L4` as the graph expands or risk requires. A failed lower layer blocks higher
+layers. A deferred `L3` or `L4` requires a reason and owning milestone. A
+verified `L0` chain may use static evidence only; a verified `L1`-`L4` chain
+must contain runtime evidence. Static indexing never substitutes for runtime
+verification.
+
+An `L1` chain is incomplete when any of these are missing: producer, contract,
+consumer, error path, validation edge, expected output, or executable evidence.
+Every `changed`, `implemented`, or `verified` graph node needs a test reference
+or an explicit `test_exemption_reason`. Unresolved dynamic edges remain
+`unresolved`; a verified chain that leaves such an edge uncovered must expand to
+`full` or `expanded` test scope.
 
 ## Task Graph and Vertical Slices
 
@@ -297,6 +366,11 @@ Runtime visibility evidence:
 Coverage rows updated:
 Output:
 Tests:
+Test Chain IDs / levels:
+Test node / edge refs:
+Error path:
+Expected output:
+Test command and runtime evidence:
 Validation evidence:
 Implements AC:
 ```
@@ -598,10 +672,10 @@ AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心
 3. 实现前先输出本阶段计划、改动范围、依赖、验收命令
 4. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
 5. 持久化或状态任务必须同时确认 writer、reader、状态消费者、枚举集合和运行时可见性检查
-6. 每个最小任务完成后重新索引，更新 graph snapshot/diff、code-map、coverage 和 handoff，再按 AC 编号自检
-7. 实现完成后完成 post-change Code Network Gate；`implemented` 不得直接标为 `verified`
+6. 每个最小任务必须先通过 L0/L1 Test Chain Gate；完成后重新索引，更新 graph snapshot/diff、code-map、coverage、test chain 和 handoff，再按 AC 编号自检
+7. 实现完成后完成 post-change Code Network Gate；`implemented` 不得直接标为 `verified`，静态证据不得冒充运行时证据
 8. 自检输出格式固定为：AC编号 | PASS/FAIL/WARN | 说明
-9. 任一 FAIL、Ghost Interface、Orphan Node、未闭合读写、不可达状态或 unresolved contract closure 必须在当前阶段修复
+9. 任一 FAIL、Ghost Interface、Orphan Node、未闭合读写、不可达状态、缺失 L0/L1 测试链或 unresolved contract closure 必须在当前阶段修复
 10. 全局禁止项每个阶段都必须检查
 11. 每阶段报告必须写入指定 reports 目录
 12. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
@@ -652,6 +726,8 @@ AC rules:
 - Classify AC when the project is complex: happy path, edge case, error path, non-functional, data integrity, safety
 - For every requirement, cover `happy`, `edge`, `error`, `non-functional`, `data-integrity`, and `safety`; if a category is not applicable, record `N/A` and the reason.
 - For storage/state requirements, require paired structure, writer, reader visibility, state reachability, enum completeness, and intentional-empty checks.
+- For every code-changing task, bind an executable `test_chain` to node/edge IDs and AC IDs. The minimum chain is `L0` plus `L1`; `L1` must include producer, contract, consumer, observable output, and error path.
+- A verified `L0` may use static evidence, but verified `L1`-`L4` requires runtime evidence. Deferred higher layers need an explicit reason and milestone; unresolved dynamic edges require full or expanded test scope.
 - A review finding, rejection premise, or low-coverage result is not an accepted fact until independent evidence verifies it.
 
 Table format:
@@ -693,6 +769,8 @@ Examples:
 | G-09 | 禁止用强制完整阅读长 PRD 替代 Stage Packet | FAIL |
 | G-10 | 禁止用纯文字接口描述替代实际符号、边和验证证据 | FAIL |
 | G-11 | 禁止提交 Ghost Interface、Orphan Node 或未闭合 contract | FAIL |
+| G-12 | 禁止代码变更缺少 L0/L1 Test Chain，或将静态图证据冒充运行时证据 | FAIL |
+| G-13 | 禁止在动态边保持 unresolved 时静默缩小测试范围 | FAIL |
 ```
 
 ## Interface Contracts

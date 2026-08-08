@@ -37,6 +37,20 @@ class AuditLessonsWorkflowTests(unittest.TestCase):
             ):
                 self.assertIn(phrase, text)
 
+    def test_skill_and_templates_expose_test_chain_gate(self) -> None:
+        for name in ("SKILL.md", "references/change_packet_template.md", "references/prd_template.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            for phrase in (
+                "Test Chain Gate",
+                "L0",
+                "L1",
+                "runtime evidence",
+                "producer",
+                "consumer",
+                "error path",
+            ):
+                self.assertIn(phrase, text)
+
 
 if __name__ == "__main__":
     unittest.main()

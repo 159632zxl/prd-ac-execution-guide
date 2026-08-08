@@ -26,6 +26,7 @@ Supersedes:
 1. [项目概述](#1-项目概述)
 2. [依据文件与执行边界](#2-依据文件与执行边界)
 3. [目标目录结构与接口](#3-目标目录结构与接口)
+   - [测试与代码链路验收](#35-测试与代码链路验收)
 4. [P0 现状复核](#4-p0-现状复核)
 5. [M1 基础层](#5-m1-基础层)
 6. [M2 核心写入/处理路径](#6-m2-核心写入处理路径)
@@ -54,10 +55,10 @@ Supersedes:
 > 3. 实现前先输出本阶段计划、改动范围、依赖、验收命令
 > 4. 写代码前先完成 pre-change Code Network Gate；未知边界必须停下并记录
 > 5. 持久化或状态任务必须同时确认 writer、reader、状态消费者、枚举集合和运行时可见性检查
-> 6. 每个最小任务完成后重新索引，更新 graph snapshot/diff、code-map、coverage 和 handoff，再按 AC 编号自检
-> 7. 实现完成后完成 post-change Code Network Gate；`implemented` 不得直接标为 `verified`
+> 6. 每个最小任务先通过 L0/L1 Test Chain Gate，再重新索引并更新 graph snapshot/diff、code-map、coverage、test-map 和 handoff
+> 7. 实现完成后完成 post-change Code Network Gate；`implemented` 不得直接标为 `verified`，静态证据不得冒充运行时证据
 > 8. 自检输出格式固定为：`AC编号 | PASS/FAIL/WARN | 说明`
-> 9. 任一 `FAIL`、Ghost Interface、Orphan Node、未闭合读写、不可达状态或未闭合 contract 必须在当前阶段修复，不得进入下一阶段
+> 9. 任一 `FAIL`、Ghost Interface、Orphan Node、未闭合读写、不可达状态、缺失 L0/L1 测试链或未闭合 contract 必须在当前阶段修复，不得进入下一阶段
 > 10. `G-*` 全局禁止项每个阶段都必须检查
 > 11. 每阶段报告必须写入指定 reports 目录
 > 12. 每个 PASS 必须给出 Validation evidence；未知项必须 honest blocking，不得假装理解
@@ -471,15 +472,78 @@ error path:
 forbidden:
 pre-change evidence:
 post-change validation:
+test chain IDs / levels:
+test nodes / edge refs:
+error path and expected output:
+runtime evidence:
 ```
 
 contract closure: producer + consumer + data shape + error path + validation
 
 ### 3.4 Task Graph -> AC 映射
 
-| Task | Depends on | Stage Packet | Target symbols/files | Edges closed | Implements AC | Validation |
-|------|------------|--------------|----------------------|--------------|---------------|------------|
-| M1-T01 | - | code-map.md | ... | ... -> ... | M1-DONE-01 | ... |
+| Task | Depends on | Stage Packet | Target symbols/files | Edges closed | Test chains | Implements AC | Validation |
+|------|------------|--------------|----------------------|--------------|-------------|---------------|------------|
+| M1-T01 | - | code-map.md | ... | ... -> ... | TC-L1-... (L1) | M1-DONE-01 | ... |
+
+### 3.5 测试与代码链路验收
+
+测试不是最后补的清单，而是代码地图的运行时验证层。代码地图证明
+producer、contract、consumer 在结构上存在；测试链证明入口可达、数据可见、
+输出正确且错误路径有行为。
+
+每个最小实施任务必须至少绑定一条测试链：
+
+```text
+Test chain ID:
+Level: L0 | L1 | L2 | L3 | L4
+Entrypoint / test nodes:
+Code node refs:
+Edge refs:
+Requirement refs:
+AC refs:
+Producer refs:
+Contract / persistence refs:
+Consumer refs:
+Error path refs:
+Expected output:
+Command:
+Static evidence:
+Runtime evidence:
+Uncovered / unresolved edge refs:
+Test scope: targeted | full | expanded
+Status: planned | implemented | verified | blocked | unresolved | deferred
+```
+
+分层门禁如下：
+
+| 层级 | 目标 | 最低证据 | 门禁规则 |
+|---|---|---|---|
+| L0 | 静态代码图 | 测试入口、节点/边 ID、producer/contract/consumer 拓扑、Ghost/Orphan 检查 | 每个代码变更必须通过 |
+| L1 | MVP 最小垂直链 | 输入 -> producer -> contract -> consumer -> 可观察输出 -> error path | 每个最小任务必须通过 |
+| L2 | 组件/合同 | 状态转换、读写合同、枚举闭合、空结果与失败区分 | L1 通过后按节点加入 |
+| L3 | 集成/E2E | 真实数据库、事件、路由、外部适配器、跨模块可达 | 按边界和风险加入 |
+| L4 | 完整性/安全/非功能 | 外键、重复数据、隔离、权限、安全、迁移、性能 | 高风险或发布前必须加入 |
+
+L0/L1 任一 FAIL，不得进入下一层或下一 milestone。已验证的 L0 可以只有
+静态证据；已验证的 L1-L4 必须有运行时证据。L3/L4 可以延期，但必须写明
+原因、风险和 owning milestone。动态边必须保持 `unresolved`；若测试链仍有
+未覆盖动态边，测试范围必须扩大为 `full` 或 `expanded`，不得静默缩小。
+
+从零开发：先生成 Target Graph，完成 L0，再用一条 L1 垂直链同时实现
+producer、contract、consumer、error path 和验证，重新索引后逐层增加 L2-L4。
+
+存量重构：先生成 Observed Graph 并固定 baseline SHA，查询现状数据和运行
+路径，冻结一个有界 Change Graph；先复制并通过原有行为的 L1 链，再修改一个
+子图，验证新旧链路、数据完整性和安全，最后再扩大测试层级。
+
+二次开发：沿用现有入口和测试链，先把新增节点接入既有 producer/contract/
+consumer，再增加最小 L1 链；不得只添加 helper、route、schema 或 adapter 而
+没有消费者和测试入口。
+
+`test-map.md`（Change Packet）或本节表格必须记录每条链的节点/边、AC、命令、
+预期输出、错误路径、运行时证据和未覆盖边。`implemented` 不等于
+`verified`，静态索引结果不得代替运行时测试结果。
 
 ---
 
@@ -509,6 +573,8 @@ graph-snapshot.json:
 graph-diff.json:
 Context Provider:
 Unresolved edges:
+test-map.md:
+L0/L1 Test Chain Gate: PASS | FAIL | BLOCKED
 Pre-change Code Network Gate: PASS | FAIL | BLOCKED
 ```
 
@@ -562,6 +628,11 @@ State reachability:
 Runtime visibility:
 Pre-change impact:
 Post-change impact:
+Test Network / test-map:
+L0/L1 gate:
+L2/L3/L4 status and deferrals:
+Static versus runtime evidence:
+Uncovered dynamic edges and test scope:
 执行命令:
 命令结果:
 Validation evidence:
@@ -600,6 +671,8 @@ handoff:
 | G-09 | 禁止只验证表/接口存在而不验证 writer、runtime data 和 reader visibility | FAIL |
 | G-10 | 禁止静默丢弃源文档章节、状态值或枚举值 | FAIL |
 | G-11 | 禁止未经独立证据验证评审发现、否决理由或低覆盖率结论 | FAIL |
+| G-12 | 禁止代码变更缺少 L0/L1 Test Chain，或将静态图证据冒充运行时证据 | FAIL |
+| G-13 | 禁止动态边保持 unresolved 时静默缩小测试范围 | FAIL |
 
 ### 12.1 P0 验收
 
@@ -611,6 +684,8 @@ handoff:
 | P0-COV-01 | data-integrity | `coverage.md` 已覆盖所有 `##` 源章节，延期/N/A 有理由 | 对比章节清单与 coverage 表 | FAIL |
 | P0-RW-01 | data-integrity | 每个持久化对象有 writer、reader、状态消费者或明确 milestone | 检查 contracts、graph edges 和状态表 | FAIL |
 | P0-RUN-01 | data-integrity | 结构检查、writer 数据证据和 reader visibility 成对存在 | 执行流水线并查询数据/读取结果 | FAIL |
+| P0-TEST-01 | data-integrity | 每个最小任务已绑定 L0/L1 测试链，包含 producer、contract、consumer 和 error path | 检查 `test-map.md`、graph `test_chains` 和执行证据 | FAIL |
+| P0-TEST-02 | safety | 静态图证据与运行时测试证据已区分，动态边的未覆盖范围已扩大或显式阻塞 | 检查 `evidence_kind`、`runtime_evidence` 和 `test_scope` | FAIL |
 | P0-DONE | happy | ... | ... | FAIL |
 
 ### 12.2 M1 验收
@@ -625,9 +700,17 @@ handoff:
 | M1-SAFE-01 | safety | ... | ... | FAIL |
 | M1-STATE-01 | data-integrity | 每个写入状态可被下游查询或显式标记为终态 | 状态可达性查询/测试 | FAIL |
 | M1-ENUM-01 | data-integrity | 设计枚举与 schema CHECK 集合一致 | 比较枚举定义和 schema | FAIL |
+| M1-TEST-01 | happy | MVP 垂直链路可从入口走到可观察输出 | 执行 L1 `test_chain` | FAIL |
+| M1-TEST-02 | error | MVP 链路错误路径有可观察行为 | 执行 `error_path_refs` 对应测试 | FAIL |
 
 ### 12.x 最终验收命令
 
 ```bash
-...
+python scripts/check_prd_ac.py <prd-or-template.md>
+python scripts/check_graph_evidence.py <graph-snapshot.json>
+<L0 static graph gate>
+<L1 MVP test chain>
+<L2 component/contract tests when applicable>
+<L3 integration/E2E tests when applicable>
+<L4 integrity/safety/non-functional tests when applicable>
 ```

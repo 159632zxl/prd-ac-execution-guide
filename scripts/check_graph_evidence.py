@@ -28,6 +28,11 @@ SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,64}$")
 NULL_SEMANTICS = {"sentinel", "partial_index", "coalesce_expression_index", "blocked"}
 IMPLEMENTATION_STATES = {"unimplemented", "implemented-but-broken", "data-corrupted", "implemented"}
 STORAGE_KINDS = {"sql_table", "sql_field", "cache", "event", "interface", "file", "other"}
+TEST_LEVELS = {"L0", "L1", "L2", "L3", "L4"}
+TEST_STATUSES = {"planned", "implemented", "verified", "blocked", "unresolved", "deferred"}
+TEST_SCOPES = {"targeted", "full", "expanded"}
+PRODUCER_EDGE_KINDS = {"calls", "writes", "publishes", "returns", "routes"}
+CONSUMER_EDGE_KINDS = {"calls", "reads", "subscribes", "returns", "routes"}
 
 
 def _is_nonempty_string(value: Any) -> bool:
@@ -372,17 +377,220 @@ def _validate_contracts(
                 errors.append(f"{label} data-corrupted requires cleanup_plan")
 
 
+def _validate_test_chains(
+    document: dict[str, Any],
+    errors: list[str],
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> None:
+    """Require testable vertical chains instead of disconnected test prose."""
+
+    chains = document.get("test_chains")
+    if not isinstance(chains, list) or not chains:
+        errors.append("test_chains must be a non-empty list")
+        return
+
+    node_by_id = {node.get("node_id"): node for node in nodes if isinstance(node, dict)}
+    edge_by_id = {edge.get("edge_id"): edge for edge in edges if isinstance(edge, dict)}
+    chain_ids: set[str] = set()
+    observed_levels: set[str] = set()
+    for index, chain in enumerate(chains):
+        label = f"test_chains[{index}]"
+        if not isinstance(chain, dict):
+            errors.append(f"{label} must be an object")
+            continue
+
+        chain_id = chain.get("chain_id")
+        if not _is_nonempty_string(chain_id):
+            errors.append(f"{label} chain_id must be non-empty")
+        elif chain_id in chain_ids:
+            errors.append(f"duplicate chain_id: {chain_id}")
+        else:
+            chain_ids.add(chain_id)
+
+        level = chain.get("level")
+        status = chain.get("status")
+        if isinstance(level, str):
+            observed_levels.add(level)
+        if level not in TEST_LEVELS:
+            errors.append(f"{label} level is invalid")
+        if status not in TEST_STATUSES:
+            errors.append(f"{label} status is invalid")
+        if not _is_nonempty_string(chain.get("expected_output")):
+            errors.append(f"{label} expected_output must be non-empty")
+        if not _is_nonempty_string(chain.get("command")):
+            errors.append(f"{label} command must be non-empty")
+        for field in ("test_node_refs", "node_refs", "edge_refs", "requirement_refs", "ac_refs", "error_path_refs", "uncovered_edge_refs"):
+            if not isinstance(chain.get(field), list):
+                errors.append(f"{label} {field} must be a list")
+        if not chain.get("requirement_refs"):
+            errors.append(f"{label} requires requirement_refs")
+        if not chain.get("ac_refs"):
+            errors.append(f"{label} requires ac_refs")
+
+        test_node_refs = chain.get("test_node_refs", [])
+        node_refs = chain.get("node_refs", [])
+        edge_refs = chain.get("edge_refs", [])
+        for ref in test_node_refs:
+            node = node_by_id.get(ref)
+            if node is None:
+                errors.append(f"{label} test_node_refs references unknown node: {ref}")
+            elif node.get("kind") != "test":
+                errors.append(f"{label} test_node_refs must reference test nodes: {ref}")
+        for ref in node_refs:
+            if ref not in node_by_id:
+                errors.append(f"{label} node_refs references unknown node: {ref}")
+        for ref in edge_refs:
+            if ref not in edge_by_id:
+                errors.append(f"{label} edge_refs references unknown edge: {ref}")
+
+        entrypoint = chain.get("entrypoint_node_id")
+        if entrypoint not in test_node_refs:
+            errors.append(f"{label} entrypoint must be listed in test_node_refs")
+        elif not node_by_id.get(entrypoint, {}).get("entrypoint"):
+            errors.append(f"{label} entrypoint test node must be marked entrypoint")
+
+        roles = chain.get("required_roles")
+        if not isinstance(roles, dict):
+            errors.append(f"{label} required_roles must be an object")
+            roles = {}
+        for role in ("producer", "contract", "consumer", "error_path"):
+            if not isinstance(roles.get(role), list):
+                errors.append(f"{label} required_roles.{role} must be a list")
+        for role in ("producer", "contract", "consumer"):
+            role_refs = roles.get(role, [])
+            if level != "L0" and not role_refs:
+                errors.append(f"{label} {role} is required for {level}")
+            for ref in role_refs:
+                if ref not in node_refs:
+                    errors.append(f"{label} {role} ref is not in node_refs: {ref}")
+        error_path_refs = chain.get("error_path_refs", [])
+        error_role_refs = roles.get("error_path", [])
+        if level != "L0" and not error_path_refs:
+            errors.append(f"{label} error_path is required for {level}")
+        for ref in error_role_refs:
+            if ref not in error_path_refs:
+                errors.append(f"{label} required_roles.error_path ref is not in error_path_refs: {ref}")
+        for ref in error_path_refs:
+            if ref not in node_by_id and ref not in edge_by_id:
+                errors.append(f"{label} error_path_refs references unknown node or edge: {ref}")
+
+        chain_edges = [edge_by_id[ref] for ref in edge_refs if ref in edge_by_id]
+        validation_edges = [
+            edge for edge in chain_edges
+            if edge.get("kind") == "validates" and edge.get("from") in test_node_refs
+        ]
+        required_code_refs = {
+            ref
+            for role in ("producer", "contract", "consumer")
+            for ref in roles.get(role, [])
+        }
+        for ref in required_code_refs:
+            if not any(edge.get("to") == ref for edge in validation_edges):
+                errors.append(f"{label} missing validates edge for role node: {ref}")
+
+        producers = roles.get("producer", [])
+        contracts = roles.get("contract", [])
+        consumers = roles.get("consumer", [])
+        if level != "L0":
+            if not any(
+                edge.get("from") in producers
+                and edge.get("to") in contracts
+                and edge.get("kind") in PRODUCER_EDGE_KINDS
+                for edge in chain_edges
+            ):
+                errors.append(f"{label} has no producer-to-contract edge")
+            if not any(
+                edge.get("from") in contracts
+                and edge.get("to") in consumers
+                and edge.get("kind") in CONSUMER_EDGE_KINDS
+                for edge in chain_edges
+            ):
+                errors.append(f"{label} has no contract-to-consumer edge")
+
+        evidence_kind = chain.get("evidence_kind")
+        static_evidence = chain.get("static_evidence")
+        runtime_evidence = chain.get("runtime_evidence")
+        verification_evidence = chain.get("verification_evidence")
+        if evidence_kind not in {"static", "runtime", "mixed"}:
+            errors.append(f"{label} evidence_kind is invalid")
+        for field, value in (
+            ("static_evidence", static_evidence),
+            ("runtime_evidence", runtime_evidence),
+            ("verification_evidence", verification_evidence),
+        ):
+            if not isinstance(value, list):
+                errors.append(f"{label} {field} must be a list")
+        if status == "verified":
+            if not isinstance(verification_evidence, list) or not verification_evidence:
+                errors.append(f"{label} verified requires verification_evidence")
+            if level == "L0":
+                if evidence_kind != "static":
+                    errors.append(f"{label} L0 verified must use static evidence")
+                if not isinstance(static_evidence, list) or not static_evidence:
+                    errors.append(f"{label} L0 verified requires static_evidence")
+                if runtime_evidence:
+                    errors.append(f"{label} L0 must not claim runtime_evidence")
+            else:
+                if evidence_kind not in {"runtime", "mixed"}:
+                    errors.append(f"{label} {level} verified requires runtime evidence kind")
+                if not isinstance(runtime_evidence, list) or not runtime_evidence:
+                    errors.append(f"{label} verified requires runtime_evidence")
+        if status == "deferred":
+            if not _is_nonempty_string(chain.get("deferred_reason")):
+                errors.append(f"{label} deferred requires deferred_reason")
+            if not _is_nonempty_string(chain.get("deferred_milestone")):
+                errors.append(f"{label} deferred requires deferred_milestone")
+        if status == "blocked" and not _is_nonempty_string(chain.get("blocked_reason")):
+            errors.append(f"{label} blocked requires blocked_reason")
+        if status == "unresolved" and not _is_nonempty_string(chain.get("next_query")):
+            errors.append(f"{label} unresolved requires next_query")
+
+        test_scope = chain.get("test_scope")
+        if test_scope not in TEST_SCOPES:
+            errors.append(f"{label} test_scope is invalid")
+        uncovered = chain.get("uncovered_edge_refs", [])
+        for ref in uncovered:
+            edge = edge_by_id.get(ref)
+            if edge is None:
+                errors.append(f"{label} uncovered_edge_refs references unknown edge: {ref}")
+            elif edge.get("status") != "unresolved":
+                errors.append(f"{label} uncovered edge must remain unresolved: {ref}")
+        if status == "verified" and uncovered and test_scope not in {"full", "expanded"}:
+            errors.append(f"{label} unresolved edges require expanded or full test scope")
+
+    if document.get("graph_type") in {"target", "change"}:
+        for required_level in ("L0", "L1"):
+            if required_level not in observed_levels:
+                errors.append(f"target/change graph requires a {required_level} test chain")
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        test_refs = node.get("test_refs", [])
+        if test_refs is not None and not isinstance(test_refs, list):
+            errors.append(f"node {node.get('node_id')} test_refs must be a list")
+            continue
+        for ref in test_refs or []:
+            test_node = node_by_id.get(ref)
+            if test_node is None or test_node.get("kind") != "test":
+                errors.append(f"node {node.get('node_id')} test_refs references non-test node: {ref}")
+        if node.get("status") in {"changed", "implemented", "verified"} and not test_refs:
+            if not _is_nonempty_string(node.get("test_exemption_reason")):
+                errors.append(f"node {node.get('node_id')} requires test_refs or test_exemption_reason")
+
+
 def validate_document(document: Any, map_only: bool = False) -> list[str]:
     """Return all validation errors for one normalized graph snapshot."""
 
     errors: list[str] = []
     if not isinstance(document, dict):
         return ["document must be a JSON object"]
-    for field in ("schema_version", "artifact_type", "graph_type", "repository", "provider", "coverage", "source_coverage", "audit_coverage", "nodes", "edges", "contracts"):
+    for field in ("schema_version", "artifact_type", "graph_type", "repository", "provider", "coverage", "source_coverage", "audit_coverage", "nodes", "edges", "contracts", "test_chains"):
         if field not in document:
             errors.append(f"missing top-level field: {field}")
-    if document.get("schema_version") != "1.0":
-        errors.append("schema_version must be 1.0")
+    if document.get("schema_version") != "1.1":
+        errors.append("schema_version must be 1.1")
     graph_type = document.get("graph_type")
     if graph_type not in GRAPH_TYPES:
         errors.append("graph_type must be observed, target, or change")
@@ -529,6 +737,7 @@ def validate_document(document: Any, map_only: bool = False) -> list[str]:
         if node.get("node_id") not in incident_nodes and not node.get("entrypoint") and not node.get("test_refs"):
             errors.append(f"orphan node: {node.get('node_id')}")
 
+    _validate_test_chains(document, errors, [node for node in nodes if isinstance(node, dict)], [edge for edge in edges if isinstance(edge, dict)])
     _validate_contracts(document, errors, node_ids, edges, map_only=map_only)
     return errors
 

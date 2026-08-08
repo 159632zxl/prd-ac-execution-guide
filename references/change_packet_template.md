@@ -14,6 +14,7 @@ changes/<change-id>/
   graph-snapshot.json
   graph-diff.json
   tasks.md
+  test-map.md
   verification.md
   handoff.md
 ```
@@ -98,6 +99,31 @@ The normalized `source_coverage` rows also carry `requirement_refs`, `ears_refs`
 
 Allowed status values: `covered`, `deferred`, `not-applicable`. `deferred` and `not-applicable` require a reason and an owning milestone or approval.
 
+## Test Chain Gate / test-map.md
+
+Tests are part of the code network. Record one row for every minimum vertical
+slice and extend it as the graph grows:
+
+```markdown
+| Test chain | Level | Entrypoint / test nodes | Producer | Contract | Consumer | Error path | Node / edge refs | AC | Status | Command | Runtime evidence | Uncovered edges / scope |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| TC-L1-items-write-read | L1 | tests/test_items.py::test_write_read_chain | fn:writer | table:items | fn:reader | tests/test_items.py::test_write_error | N-01,N-02,E-01 | M1-DONE-01 | verified | pytest ... | reader returns item | none / targeted |
+```
+
+Required levels and gates:
+
+```text
+L0 Static Graph Gate -> L1 MVP Vertical Slice -> L2 Component/Contract
+-> L3 Integration/E2E -> L4 Integrity/Safety/Non-functional
+```
+
+`L0` and `L1` are mandatory for every implementation task. A verified `L0`
+requires static evidence; a verified `L1`-`L4` requires runtime evidence.
+`L3`/`L4` may be `deferred` only with a reason and owning milestone. An
+unresolved dynamic edge requires `full` or `expanded` test scope. Missing
+producer, contract, consumer, error path, validation edge, expected output, or
+executable evidence is a failed chain, not a warning.
+
 ## Audit Hardening
 
 Every persisted or policy contract must carry the following checks when applicable:
@@ -130,6 +156,7 @@ Validate these files with `scripts/check_graph_evidence.py` and the canonical `r
 
 ```text
 graph-snapshot.json:
+  schema_version: 1.1
   artifact_type: graph_snapshot
   graph_type: observed | target
   repository.git_sha:
@@ -140,6 +167,7 @@ graph-snapshot.json:
   nodes: stable node_id + kind + status + path + symbol + evidence
   edges: stable edge_id + kind + from + to + evidence
   contracts: writers + readers + state consumers + enum/runtime evidence
+  test_chains: chain_id + level + test nodes + node/edge refs + error path + evidence
 
 graph-diff.json:
   artifact_type: graph_diff
@@ -240,9 +268,9 @@ Contract closure is complete only when producer, consumer, data shape, error pat
 ## tasks.md
 
 ```markdown
-| Task | Depends on | Stage Packet | Target symbols/files | Edges closed | Implements AC | Validation |
-|------|------------|--------------|----------------------|--------------|---------------|------------|
-| M1-T01 | - | code-map.md | ... | ... -> ... | M1-DONE-01 | ... |
+| Task | Depends on | Stage Packet | Target symbols/files | Edges closed | Test chains | Implements AC | Validation |
+|------|------------|--------------|----------------------|--------------|-------------|---------------|------------|
+| M1-T01 | - | code-map.md | ... | ... -> ... | TC-L1-... (L1) | M1-DONE-01 | ... |
 ```
 
 Tasks are vertical slices. A task that creates a producer without its consumer, writer without reader visibility, or state without a consumer is not ready for implementation.
@@ -257,7 +285,11 @@ Pre-change commands:
 
 Post-change commands:
 - build/typecheck -- expected evidence
-- unit/integration/e2e tests -- expected evidence
+- L0 static graph gate -- expected node/edge and Ghost/Orphan evidence
+- L1 MVP vertical test chain -- expected producer -> contract -> consumer -> output and error evidence
+- L2 component/contract tests -- expected state, enum, and empty-vs-error evidence
+- L3 integration/E2E tests when required -- expected real boundary evidence
+- L4 integrity/safety/non-functional tests when required -- expected data and safety evidence
 - import/export/route/schema search -- expected evidence
 - dependency or diff-impact query -- expected evidence
 - writer execution and runtime data query -- expected evidence
@@ -271,6 +303,11 @@ Reader/writer closure:
 State reachability:
 Enum completeness:
 Source coverage completeness:
+Test Network / test-map:
+L0/L1 gate:
+L2/L3/L4 status and deferrals:
+Static versus runtime evidence:
+Uncovered dynamic edges and test scope:
 Map Completeness Gate:
 No source modifications:
 Validation evidence:
@@ -292,6 +329,8 @@ Graph diff / baseline SHA:
 Source coverage:
 Writer / reader closure:
 Runtime visibility:
+Test chains:
+Uncovered edges:
 Unresolved edges:
 Current blocker:
 Next command:

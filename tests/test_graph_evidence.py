@@ -10,9 +10,135 @@ from pathlib import Path
 from scripts.check_graph_evidence import main, validate_document
 
 
+def _add_test_network(document: dict) -> None:
+    """Attach a minimal happy/error test network to the fixture graph."""
+
+    graph_type = document["graph_type"]
+    status = "planned" if graph_type == "target" else "observed"
+    source_anchor = None if graph_type == "target" else {"path": "tests/test_items.py", "start_line": 1, "end_line": 5}
+    test_nodes = [
+        ("test:tests/test_items.py:test_write_read_chain", "test_write_read_chain"),
+        ("test:tests/test_items.py:test_write_error", "test_write_error"),
+    ]
+    for node_id, symbol in test_nodes:
+        document["nodes"].append(
+            {
+                "node_id": node_id,
+                "kind": "test",
+                "status": status,
+                "path": "tests/test_items.py",
+                "qualified_symbol": symbol,
+                "source_anchor": source_anchor,
+                "provider": "code-review-graph",
+                "git_sha": "a" * 40,
+                "confidence": 1.0,
+                "coverage": "complete",
+                "freshness": "current",
+                "verification_evidence": ["test index query"] if graph_type != "target" else [],
+                "requirement_refs": ["REQ-01"] if graph_type == "target" else [],
+                "entrypoint": True,
+            }
+        )
+
+    code_nodes = [node["node_id"] for node in document["nodes"][:3]]
+    for node in document["nodes"][:3]:
+        node["test_refs"] = [test_nodes[0][0], test_nodes[1][0]]
+    edge_specs = [
+        ("validates:test:happy->fn:writer", test_nodes[0][0], code_nodes[0]),
+        ("validates:test:happy->table:items", test_nodes[0][0], code_nodes[1]),
+        ("validates:test:happy->fn:reader", test_nodes[0][0], code_nodes[2]),
+        ("validates:test:error->fn:writer", test_nodes[1][0], code_nodes[0]),
+    ]
+    for edge_id, from_node, to_node in edge_specs:
+        document["edges"].append(
+            {
+                "edge_id": edge_id,
+                "kind": "validates",
+                "from": from_node,
+                "to": to_node,
+                "status": status,
+                "provider": "code-review-graph",
+                "git_sha": "a" * 40,
+                "source_anchor": source_anchor,
+                "confidence": 1.0,
+                "coverage": "complete",
+                "freshness": "current",
+                "verification_evidence": ["test execution"] if graph_type != "target" else [],
+                "requirement_refs": ["REQ-01"] if graph_type == "target" else [],
+            }
+        )
+    document["test_chains"] = [
+        {
+            "chain_id": "TC-L1-items-write-read",
+            "level": "L1",
+            "status": "verified" if graph_type == "observed" else "planned",
+            "entrypoint_node_id": test_nodes[0][0],
+            "test_node_refs": [test_nodes[0][0], test_nodes[1][0]],
+            "node_refs": code_nodes,
+            "edge_refs": [
+                "writes:fn:src/writer.py:write_item->table:items",
+                "reads:table:items->fn:src/reader.py:read_items",
+                "validates:test:happy->fn:writer",
+                "validates:test:happy->table:items",
+                "validates:test:happy->fn:reader",
+                "validates:test:error->fn:writer",
+            ],
+            "requirement_refs": ["REQ-01"],
+            "ac_refs": ["M1-DONE-01"],
+            "required_roles": {
+                "producer": [code_nodes[0]],
+                "contract": [code_nodes[1]],
+                "consumer": [code_nodes[2]],
+                "error_path": [test_nodes[1][0]],
+            },
+            "error_path_refs": [test_nodes[1][0]],
+            "expected_output": "reader returns the item written by the producer",
+            "command": "python -m pytest tests/test_items.py -k write_read_chain",
+            "evidence_kind": "runtime" if graph_type == "observed" else "static",
+            "static_evidence": ["graph query links the test to producer, contract, and consumer"],
+            "runtime_evidence": ["test report is green", "reader query returns the written item"] if graph_type == "observed" else [],
+            "verification_evidence": ["happy path and error path test evidence"] if graph_type == "observed" else [],
+            "uncovered_edge_refs": [],
+            "test_scope": "targeted",
+        },
+        {
+            "chain_id": "TC-L0-items-graph",
+            "level": "L0",
+            "status": "verified" if graph_type == "observed" else "planned",
+            "entrypoint_node_id": test_nodes[0][0],
+            "test_node_refs": [test_nodes[0][0]],
+            "node_refs": code_nodes,
+            "edge_refs": [
+                "writes:fn:src/writer.py:write_item->table:items",
+                "reads:table:items->fn:src/reader.py:read_items",
+                "validates:test:happy->fn:writer",
+                "validates:test:happy->table:items",
+                "validates:test:happy->fn:reader",
+            ],
+            "requirement_refs": ["REQ-01"],
+            "ac_refs": ["M1-DONE-01"],
+            "required_roles": {
+                "producer": [code_nodes[0]],
+                "contract": [code_nodes[1]],
+                "consumer": [code_nodes[2]],
+                "error_path": [],
+            },
+            "error_path_refs": [],
+            "expected_output": "graph resolves the minimum write-read topology",
+            "command": "python scripts/check_graph_evidence.py graph-snapshot.json",
+            "evidence_kind": "static",
+            "static_evidence": ["node and edge endpoint query"],
+            "runtime_evidence": [],
+            "verification_evidence": ["static graph gate"] if graph_type == "observed" else [],
+            "uncovered_edge_refs": [],
+            "test_scope": "targeted",
+        }
+    ]
+
+
 def valid_snapshot(graph_type: str = "observed") -> dict:
-    return {
-        "schema_version": "1.0",
+    document = {
+        "schema_version": "1.1",
         "artifact_type": "graph_diff" if graph_type == "change" else "graph_snapshot",
         "graph_type": graph_type,
         "repository": {"root": ".", "git_sha": "a" * 40},
@@ -159,6 +285,8 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
             }
         ],
     }
+    _add_test_network(document)
+    return document
 
 
 class GraphEvidenceTests(unittest.TestCase):
@@ -167,6 +295,12 @@ class GraphEvidenceTests(unittest.TestCase):
 
     def test_valid_target_snapshot_passes(self) -> None:
         self.assertEqual(validate_document(valid_snapshot("target")), [])
+
+    def test_target_graph_requires_l0_and_l1_chains(self) -> None:
+        document = valid_snapshot("target")
+        document["test_chains"] = [document["test_chains"][0]]
+        errors = validate_document(document)
+        self.assertTrue(any("L0" in error for error in errors))
 
     def test_map_only_accepts_observed_snapshot(self) -> None:
         self.assertEqual(validate_document(valid_snapshot(), map_only=True), [])
@@ -186,6 +320,12 @@ class GraphEvidenceTests(unittest.TestCase):
         document["contracts"][0]["status"] = "planned"
         errors = validate_document(document, map_only=True)
         self.assertTrue(any("map-only status" in error for error in errors))
+
+    def test_graph_requires_test_chains(self) -> None:
+        document = valid_snapshot()
+        document.pop("test_chains")
+        errors = validate_document(document)
+        self.assertTrue(any("test_chains" in error for error in errors))
 
     def test_target_snapshot_requires_requirement_refs(self) -> None:
         document = valid_snapshot("target")
@@ -450,6 +590,82 @@ class GraphEvidenceTests(unittest.TestCase):
         )
         errors = validate_document(document)
         self.assertTrue(any("orphan node" in error for error in errors))
+
+    def test_l1_chain_requires_consumer_and_error_path(self) -> None:
+        document = valid_snapshot()
+        chain = document["test_chains"][0]
+        chain["required_roles"]["consumer"] = []
+        chain["error_path_refs"] = []
+        errors = validate_document(document)
+        self.assertTrue(any("consumer" in error for error in errors))
+        self.assertTrue(any("error_path" in error for error in errors))
+
+    def test_verified_runtime_chain_requires_runtime_evidence(self) -> None:
+        document = valid_snapshot()
+        document["test_chains"][0]["runtime_evidence"] = []
+        errors = validate_document(document)
+        self.assertTrue(any("runtime_evidence" in error for error in errors))
+
+    def test_verified_l1_chain_rejects_static_only_evidence(self) -> None:
+        document = valid_snapshot()
+        document["test_chains"][0]["evidence_kind"] = "static"
+        errors = validate_document(document)
+        self.assertTrue(any("runtime evidence kind" in error for error in errors))
+
+    def test_l1_chain_requires_validation_edges_for_roles(self) -> None:
+        document = valid_snapshot()
+        document["test_chains"][0]["edge_refs"].remove("validates:test:happy->table:items")
+        errors = validate_document(document)
+        self.assertTrue(any("validates" in error for error in errors))
+
+    def test_implemented_node_requires_test_reference_or_explicit_exemption(self) -> None:
+        document = valid_snapshot()
+        node = document["nodes"][0]
+        node["status"] = "implemented"
+        node["test_refs"] = []
+        errors = validate_document(document)
+        self.assertTrue(any("test" in error for error in errors))
+        node["test_exemption_reason"] = "N/A: generated schema-only node; covered by contract test"
+        self.assertEqual(validate_document(document), [])
+
+    def test_deferred_l3_chain_requires_reason_and_milestone(self) -> None:
+        document = valid_snapshot()
+        chain = document["test_chains"][0]
+        chain["level"] = "L3"
+        chain["status"] = "deferred"
+        errors = validate_document(document)
+        self.assertTrue(any("deferred" in error for error in errors))
+        chain["deferred_reason"] = "External adapter is not available in the MVP environment"
+        chain["deferred_milestone"] = "M3"
+        self.assertEqual(validate_document(document), [])
+
+    def test_verified_chain_with_unresolved_edge_requires_expanded_scope(self) -> None:
+        document = valid_snapshot()
+        document["edges"].append(
+            {
+                "edge_id": "dynamic:writer->dispatcher",
+                "kind": "dynamic",
+                "from": document["nodes"][0]["node_id"],
+                "to": document["nodes"][2]["node_id"],
+                "status": "unresolved",
+                "provider": "code-review-graph",
+                "git_sha": "a" * 40,
+                "source_anchor": None,
+                "confidence": 0.2,
+                "coverage": "partial",
+                "freshness": "current",
+                "verification_evidence": [],
+                "requirement_refs": [],
+                "unresolved_reason": "framework dispatch is dynamic",
+                "next_query": "run runtime trace with dispatcher instrumentation",
+            }
+        )
+        chain = document["test_chains"][0]
+        chain["uncovered_edge_refs"] = ["dynamic:writer->dispatcher"]
+        errors = validate_document(document)
+        self.assertTrue(any("expanded" in error or "unresolved" in error for error in errors))
+        chain["test_scope"] = "expanded"
+        self.assertEqual(validate_document(document), [])
 
     def test_schema_file_is_valid_json(self) -> None:
         schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"

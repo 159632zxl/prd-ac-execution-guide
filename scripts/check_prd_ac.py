@@ -16,6 +16,10 @@ REQUIRED_PHRASES = [
     "Acceptance Criteria",
     "全局禁止项",
     "PASS/FAIL/WARN",
+    "Test Chain Gate",
+    "L0",
+    "L1",
+    "runtime evidence",
 ]
 
 RECOMMENDED_PHRASES = [
@@ -88,6 +92,10 @@ RECOMMENDED_PHRASES = [
     "premise verification",
     "audit coverage",
     "owner task",
+    "test-map.md",
+    "test_chain",
+    "evidence_kind",
+    "test_scope",
 ]
 
 AC_CATEGORIES = [

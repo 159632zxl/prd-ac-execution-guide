@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/159632zxl/prd-ac-execution-guide/schema/graph-evidence-1.0.json",
+  "$id": "https://github.com/159632zxl/prd-ac-execution-guide/schema/graph-evidence-1.1.json",
   "title": "PRD code graph evidence",
   "type": "object",
   "additionalProperties": false,
@@ -15,10 +15,11 @@
     "audit_coverage",
     "nodes",
     "edges",
-    "contracts"
+    "contracts",
+    "test_chains"
   ],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"const": "1.1"},
     "artifact_type": {"enum": ["graph_snapshot", "graph_diff"]},
     "graph_type": {"enum": ["observed", "target", "change"]},
     "repository": {
@@ -54,6 +55,7 @@
     "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}},
     "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
     "contracts": {"type": "array", "items": {"$ref": "#/$defs/contract"}},
+    "test_chains": {"type": "array", "items": {"$ref": "#/$defs/testChain"}},
     "review_findings": {
       "type": "array",
       "items": {"$ref": "#/$defs/reviewFinding"}
@@ -165,7 +167,8 @@
         "verification_evidence": {"$ref": "#/$defs/evidence"},
         "requirement_refs": {"type": "array", "items": {"type": "string"}},
         "entrypoint": {"type": "boolean"},
-        "test_refs": {"type": "array", "items": {"type": "string"}}
+        "test_refs": {"type": "array", "items": {"type": "string"}},
+        "test_exemption_reason": {"type": "string", "minLength": 1}
       }
     },
     "edge": {
@@ -309,6 +312,66 @@
         "implementation_state": {"enum": ["unimplemented", "implemented-but-broken", "data-corrupted", "implemented"]},
         "data_audit_evidence": {"$ref": "#/$defs/evidence"},
         "cleanup_plan": {"type": "string"}
+      }
+    },
+    "testChain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chain_id",
+        "level",
+        "status",
+        "entrypoint_node_id",
+        "test_node_refs",
+        "node_refs",
+        "edge_refs",
+        "requirement_refs",
+        "ac_refs",
+        "required_roles",
+        "error_path_refs",
+        "expected_output",
+        "command",
+        "evidence_kind",
+        "static_evidence",
+        "runtime_evidence",
+        "verification_evidence",
+        "uncovered_edge_refs",
+        "test_scope"
+      ],
+      "properties": {
+        "chain_id": {"type": "string", "minLength": 1},
+        "level": {"enum": ["L0", "L1", "L2", "L3", "L4"]},
+        "status": {"enum": ["planned", "implemented", "verified", "blocked", "unresolved", "deferred"]},
+        "entrypoint_node_id": {"type": "string", "minLength": 1},
+        "test_node_refs": {"type": "array", "items": {"type": "string"}},
+        "node_refs": {"type": "array", "items": {"type": "string"}},
+        "edge_refs": {"type": "array", "items": {"type": "string"}},
+        "requirement_refs": {"type": "array", "items": {"type": "string"}},
+        "ac_refs": {"type": "array", "items": {"type": "string"}},
+        "required_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["producer", "contract", "consumer", "error_path"],
+          "properties": {
+            "producer": {"type": "array", "items": {"type": "string"}},
+            "contract": {"type": "array", "items": {"type": "string"}},
+            "consumer": {"type": "array", "items": {"type": "string"}},
+            "error_path": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "error_path_refs": {"type": "array", "items": {"type": "string"}},
+        "expected_output": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1},
+        "evidence_kind": {"enum": ["static", "runtime", "mixed"]},
+        "static_evidence": {"$ref": "#/$defs/evidence"},
+        "runtime_evidence": {"$ref": "#/$defs/evidence"},
+        "verification_evidence": {"$ref": "#/$defs/evidence"},
+        "uncovered_edge_refs": {"type": "array", "items": {"type": "string"}},
+        "test_scope": {"enum": ["targeted", "full", "expanded"]},
+        "deferred_reason": {"type": "string", "minLength": 1},
+        "deferred_milestone": {"type": "string", "minLength": 1},
+        "blocked_reason": {"type": "string", "minLength": 1},
+        "next_query": {"type": "string", "minLength": 1}
       }
     },
     "reviewFinding": {
