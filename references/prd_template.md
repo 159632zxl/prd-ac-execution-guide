@@ -1,5 +1,7 @@
 # PRD AC Execution Guide Template
 
+<!-- L-tier full template. Trim sections for S/M documents according to Document Tiers in SKILL.md. -->
+
 # PRD · <Title>
 
 **<Codename> v1.0 · <YYYY-MM-DD> · 供 Codex / Claude 执行**
@@ -9,6 +11,7 @@
 
 ```text
 Spec status: draft
+Document Tier: L
 Approved by:
 Approval date:
 Implementation allowed: no
@@ -41,7 +44,7 @@ Supersedes:
 
 > **AI 执行器强制阅读声明**
 >
-> 小型单文档以第 12 章为唯一验收依据；Change Packet 以 `verification.md` 中的 Acceptance Criteria 为唯一验收依据。实现说明不替代验收标准。
+> 小型单文档以最后一章的 Acceptance Criteria 为唯一验收依据；Change Packet 以 `verification.md` 中的 Acceptance Criteria 为唯一验收依据。实现说明不替代验收标准。
 > PRD + AC 是实现真源。实现、测试、报告必须回连 AC 编号。  
 > 未批准 PRD 不得进入实现。重大范围变更必须先修订 PRD。
 > AI Readiness 未通过不得进入实现。不得让 agent 在实现中补核心设计决策。
@@ -139,6 +142,8 @@ changes/<change-id>/
 
 使用现有代码智能工具作为 Provider，由本变更包负责证据标准化；不合并多个图数据库，也不把语义推断直接当作代码事实。
 
+Record provider capabilities and limitations explicitly; generated_at must be an RFC3339 date-time; capabilities must be non-empty, while limitations may be an empty list. Observed and Change Graph current collections must not use `planned`; planned objects belong in the Target Graph. A factual test chain requires evidence matching `evidence_kind`; mixed evidence requires both static and runtime evidence. For contract closure, state and enum producers must be contract writers; state and enum consumers must be contract readers. Rejected findings must list premises and premise verification. Do not label a contract `implemented` or `verified` while its `implementation_state` is `unimplemented`.
+
 ```text
 Structural observed graph: code-review-graph / LSP / SCIP
 Entity-level change evidence: sem / repository-native diff
@@ -159,6 +164,24 @@ planned | observed | changed | implemented | verified | blocked | unresolved | r
 ```
 
 `implemented` 不等于 `verified`。动态事件、委托、框架注册等静态工具无法证明的边必须保持 `unresolved`。
+
+The current collections must not retain `removed` objects. `diff.removed_*` IDs
+must be absent from the current graph; without baseline evidence this proves
+only current absence, not prior existence. Every current `changed` or
+`unresolved` object must appear in the matching diff list. Every `blocked` or
+`unresolved` object requires a meaningful `reason` and `next_query`. Node
+paths, source anchors, coverage anchors, and evidence paths must use
+repository-relative paths; reject absolute, UNC, drive-qualified, and `..`
+traversal paths. Each test chain's `entrypoint_node_id` must have an outgoing
+`validates` edge included in that chain's `edge_refs`.
+All `edge_refs` endpoints must stay inside the chain's declared test/code node
+refs, and the entrypoint must reach every producer, contract, and consumer role
+through those edges.
+
+Use canonical identifiers with no leading or trailing whitespace. A node, edge,
+or contract whose status is `observed`, `changed`, `implemented`, or `verified`
+requires non-empty `verification_evidence`. Every source-coverage edge reference
+must include both endpoints in `target_node_refs`.
 
 ### Source Coverage
 
@@ -186,7 +209,8 @@ State reachability: 每个写入状态必须有下游消费者或显式终态声
 ```text
 NULL semantics: sentinel | partial_index | coalesce_expression_index | blocked
 Duplicate query and result:
-PRAGMA foreign_key_check and result:
+Duplicate query command (`duplicate_query`) and result evidence (`duplicate_query_result`):
+PRAGMA command (`foreign_key_check`) and result evidence (`foreign_key_check_result`):
 Strategy name / strategy parameters / trigger / target / entrypoint:
 Failure mode: normal | degraded-with-warning
 Observability evidence: warnings / logs / counters
@@ -549,7 +573,10 @@ consumer，再增加最小 L1 链；不得只添加 helper、route、schema 或 
 
 ## 4 P0 现状复核
 
-> 禁止项见 §12.1。验收标准见 §12.1。
+<!-- After an optional section number,
+milestone headings must start with `P0` or `M<n>`. -->
+
+> 禁止项见验收标准总览 `§AC.0`；本阶段验收见 `§AC.P0`。
 
 ### 4.1 目标
 
@@ -584,7 +611,7 @@ P0 未通过前不得写实现代码。若章节、边、符号、writer、reade
 
 ## 5 M1 基础层
 
-> 禁止项见 §12.2。验收标准见 §12.2。
+> 禁止项见验收标准总览 `§AC.0`；本阶段验收见 `§AC.M1`。
 
 ...
 
@@ -656,25 +683,27 @@ handoff:
 
 ## 12 验收标准总览（Acceptance Criteria）
 
-### 12.0 全局禁止项
+### §AC.0 全局禁止项
 
-| AC | 禁止项 | 等级 |
-|----|--------|------|
-| G-01 | 禁止 ... | FAIL |
-| G-02 | 禁止未查询即猜测接口、路径、schema 或命令 | FAIL |
-| G-03 | 禁止未确认即臆想业务规则或用户意图 | FAIL |
-| G-04 | 禁止未获批准进行 scope expansion 或高风险操作 | FAIL |
-| G-05 | 禁止无 Validation evidence 宣称完成 | FAIL |
-| G-06 | 禁止用强制完整阅读长 PRD 替代 Stage Packet | FAIL |
-| G-07 | 禁止用纯文字接口描述替代实际符号、边和验证证据 | FAIL |
-| G-08 | 禁止提交 Ghost Interface、Orphan Node 或未闭合 contract | FAIL |
-| G-09 | 禁止只验证表/接口存在而不验证 writer、runtime data 和 reader visibility | FAIL |
-| G-10 | 禁止静默丢弃源文档章节、状态值或枚举值 | FAIL |
-| G-11 | 禁止未经独立证据验证评审发现、否决理由或低覆盖率结论 | FAIL |
-| G-12 | 禁止代码变更缺少 L0/L1 Test Chain，或将静态图证据冒充运行时证据 | FAIL |
-| G-13 | 禁止动态边保持 unresolved 时静默缩小测试范围 | FAIL |
+`G-01` 至 `G-08` 跨文档固定为以下同号同义规则；项目专属禁止项从 `G-09` 起连续追加。
 
-### 12.1 P0 验收
+| AC | 禁止项 | Canonical English | 等级 |
+| --- | --- | --- | --- |
+| G-01 | 禁止绕过事实真源 | Do not bypass the truth source. | FAIL |
+| G-02 | 禁止无证据更新长期状态 | Do not update persistent state without evidence. | FAIL |
+| G-03 | 禁止先做增强层再补核心闭环 | Do not build enhancements before completing the core loop. | FAIL |
+| G-04 | 禁止覆盖用户已有文件且无说明 | Do not overwrite existing user files without explicit disclosure. | FAIL |
+| G-05 | 禁止未查询即猜测接口、路径、schema 或命令 | Do not guess interfaces, paths, schemas, or commands without checking. | FAIL |
+| G-06 | 禁止未确认即臆想业务规则或用户意图 | Do not invent business rules or user intent without confirmation. | FAIL |
+| G-07 | 禁止未获批准进行 scope expansion 或高风险操作 | Do not expand scope or perform high-risk operations without approval. | FAIL |
+| G-08 | 禁止无 Validation evidence 宣称完成 | Do not claim completion without validation evidence. | FAIL |
+| G-09 | 禁止用强制完整阅读长 PRD 替代 Stage Packet | Do not replace bounded context with forced full-document reading. | FAIL |
+| G-10 | 禁止用纯文字接口描述替代实际符号、边和验证证据 | Do not accept text-only interfaces or unverified graph edges. | FAIL |
+| G-11 | 禁止只验证 schema 而不验证 writer、runtime data 和 reader visibility | Do not accept schema-only behavior without writer and reader evidence. | FAIL |
+| G-12 | 禁止代码变更缺少 L0/L1 Test Chain，或将静态图证据冒充运行时证据 | Do not omit L0/L1 or present static evidence as runtime evidence. | FAIL |
+| G-13 | 禁止动态边保持 unresolved 时静默缩小测试范围 | Do not narrow test scope around unresolved dynamic edges. | FAIL |
+
+### §AC.P0 P0 验收
 
 | AC | 类别 | 验收项 | 验证方法 | 等级 |
 |----|------|--------|----------|------|
@@ -688,7 +717,7 @@ handoff:
 | P0-TEST-02 | safety | 静态图证据与运行时测试证据已区分，动态边的未覆盖范围已扩大或显式阻塞 | 检查 `evidence_kind`、`runtime_evidence` 和 `test_scope` | FAIL |
 | P0-DONE | happy | ... | ... | FAIL |
 
-### 12.2 M1 验收
+### §AC.M1 M1 验收
 
 | AC | 类别 | 验收项 | 验证方法 | 等级 |
 |----|------|--------|----------|------|
@@ -703,7 +732,7 @@ handoff:
 | M1-TEST-01 | happy | MVP 垂直链路可从入口走到可观察输出 | 执行 L1 `test_chain` | FAIL |
 | M1-TEST-02 | error | MVP 链路错误路径有可观察行为 | 执行 `error_path_refs` 对应测试 | FAIL |
 
-### 12.x 最终验收命令
+### 最终验收命令
 
 ```bash
 python scripts/check_prd_ac.py <prd-or-template.md>

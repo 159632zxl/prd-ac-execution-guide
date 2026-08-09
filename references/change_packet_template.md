@@ -160,7 +160,7 @@ graph-snapshot.json:
   artifact_type: graph_snapshot
   graph_type: observed | target
   repository.git_sha:
-  provider: name / version / command / generated_at
+  provider: name / version / command / generated_at / capabilities / limitations
   coverage: scope / status / paths / excluded_paths / limitations
   source_coverage:
   audit_coverage: reviewers / independent_verification / limitations
@@ -174,9 +174,39 @@ graph-diff.json:
   graph_type: change
   baseline_sha:
   current_sha:
-  added / removed / changed / unresolved nodes and edges:
+  added / removed / changed nodes, edges, and contracts; unresolved objects:
   impact and verification evidence:
 ```
+
+The current collections must not retain `removed` objects. `diff.removed_*` IDs
+must be absent from the current graph; without baseline evidence this proves
+only current absence, not prior existence. Diff sets cover nodes, edges, and
+contracts. Every current `changed` or `unresolved` node, edge, or contract must
+appear in the matching diff list. Every `blocked` or
+`unresolved` object requires a meaningful `reason` and `next_query`. Node
+paths, source anchors, coverage anchors, and evidence paths must use
+repository-relative paths; reject absolute, UNC, drive-qualified, and `..`
+traversal paths. Each test chain's `entrypoint_node_id` must have an outgoing
+`validates` edge included in that chain's `edge_refs`.
+All `edge_refs` endpoints must stay inside the chain's declared test/code node
+refs, and the entrypoint must reach every producer, contract, and consumer role
+through those edges.
+
+Use canonical identifiers with no leading or trailing whitespace. A node, edge,
+or contract whose status is `observed`, `changed`, `implemented`, or `verified`
+requires non-empty `verification_evidence`. Every source-coverage edge reference
+must include both endpoints in `target_node_refs`.
+
+Record provider capabilities and limitations explicitly; generated_at must be
+an RFC3339 date-time; capabilities must be non-empty, while limitations may be
+an empty list. Observed and Change Graph
+current collections must not use `planned`; planned objects belong in the Target
+Graph. A factual test chain requires evidence matching `evidence_kind`; mixed
+evidence requires both static and runtime evidence. For contract closure, state
+and enum producers must be contract writers; state and enum consumers must be
+contract readers. Rejected findings must list premises and premise verification.
+Do not label a contract `implemented` or `verified` while its
+`implementation_state` is `unimplemented`.
 
 `implemented` is not `verified`. Dynamic or framework edges that cannot be proven remain `unresolved`. An empty impact result does not prove safety.
 
@@ -244,8 +274,10 @@ Intentional empty reason:
 Intentional empty milestone:
 Storage kind: sql_table | sql_field | cache | event | interface | file | other
 NULL semantics:
-Duplicate query:
-PRAGMA foreign_key_check:
+Duplicate query (`duplicate_query`):
+Duplicate query result evidence (`duplicate_query_result`):
+PRAGMA command (`foreign_key_check`):
+PRAGMA result evidence (`foreign_key_check_result`):
 Strategy parameters:
 Strategy trigger:
 Strategy target:

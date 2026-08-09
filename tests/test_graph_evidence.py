@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from scripts.check_graph_evidence import main, validate_document
+from scripts.check_graph_evidence import _reject_duplicate_pairs, main, validate_document
 
 
 def _add_test_network(document: dict) -> None:
@@ -72,7 +72,7 @@ def _add_test_network(document: dict) -> None:
         {
             "chain_id": "TC-L1-items-write-read",
             "level": "L1",
-            "status": "verified" if graph_type == "observed" else "planned",
+            "status": "verified" if graph_type == "observed" else status,
             "entrypoint_node_id": test_nodes[0][0],
             "test_node_refs": [test_nodes[0][0], test_nodes[1][0]],
             "node_refs": code_nodes,
@@ -98,14 +98,14 @@ def _add_test_network(document: dict) -> None:
             "evidence_kind": "runtime" if graph_type == "observed" else "static",
             "static_evidence": ["graph query links the test to producer, contract, and consumer"],
             "runtime_evidence": ["test report is green", "reader query returns the written item"] if graph_type == "observed" else [],
-            "verification_evidence": ["happy path and error path test evidence"] if graph_type == "observed" else [],
+            "verification_evidence": ["happy path and error path test evidence"] if graph_type != "target" else [],
             "uncovered_edge_refs": [],
             "test_scope": "targeted",
         },
         {
             "chain_id": "TC-L0-items-graph",
             "level": "L0",
-            "status": "verified" if graph_type == "observed" else "planned",
+            "status": "verified" if graph_type == "observed" else status,
             "entrypoint_node_id": test_nodes[0][0],
             "test_node_refs": [test_nodes[0][0]],
             "node_refs": code_nodes,
@@ -130,7 +130,7 @@ def _add_test_network(document: dict) -> None:
             "evidence_kind": "static",
             "static_evidence": ["node and edge endpoint query"],
             "runtime_evidence": [],
-            "verification_evidence": ["static graph gate"] if graph_type == "observed" else [],
+            "verification_evidence": ["static graph gate"] if graph_type != "target" else [],
             "uncovered_edge_refs": [],
             "test_scope": "targeted",
         }
@@ -148,11 +148,13 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
             "version": "1.0.0",
             "command": "code-review-graph index .",
             "generated_at": "2026-08-07T12:00:00Z",
+            "capabilities": ["definitions and relationship extraction"],
+            "limitations": [],
         },
         "coverage": {
             "scope": "repository",
             "status": "complete",
-            "paths": ["src"],
+            "paths": ["src", "db", "tests", "design.md"],
             "excluded_paths": [],
         },
         "source_coverage": [
@@ -178,11 +180,11 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
             {
                 "node_id": "fn:src/writer.py:write_item",
                 "kind": "function",
-                "status": "observed" if graph_type == "observed" else "planned",
+                "status": "planned" if graph_type == "target" else "observed",
                 "path": "src/writer.py",
                 "qualified_symbol": "write_item",
                 "source_anchor": {"path": "src/writer.py", "start_line": 1, "end_line": 5}
-                if graph_type == "observed"
+                if graph_type != "target"
                 else None,
                 "provider": "code-review-graph",
                 "git_sha": "a" * 40,
@@ -195,11 +197,11 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
             {
                 "node_id": "table:items",
                 "kind": "table",
-                "status": "observed" if graph_type == "observed" else "planned",
+                "status": "planned" if graph_type == "target" else "observed",
                 "path": "db/schema.sql",
                 "qualified_symbol": "items",
                 "source_anchor": {"path": "db/schema.sql", "start_line": 1, "end_line": 4}
-                if graph_type == "observed"
+                if graph_type != "target"
                 else None,
                 "provider": "code-review-graph",
                 "git_sha": "a" * 40,
@@ -212,11 +214,11 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
             {
                 "node_id": "fn:src/reader.py:read_items",
                 "kind": "function",
-                "status": "observed" if graph_type == "observed" else "planned",
+                "status": "planned" if graph_type == "target" else "observed",
                 "path": "src/reader.py",
                 "qualified_symbol": "read_items",
                 "source_anchor": {"path": "src/reader.py", "start_line": 1, "end_line": 5}
-                if graph_type == "observed"
+                if graph_type != "target"
                 else None,
                 "provider": "code-review-graph",
                 "git_sha": "a" * 40,
@@ -233,11 +235,11 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
                 "kind": "writes",
                 "from": "fn:src/writer.py:write_item",
                 "to": "table:items",
-                "status": "observed" if graph_type == "observed" else "planned",
+                "status": "planned" if graph_type == "target" else "observed",
                 "provider": "code-review-graph",
                 "git_sha": "a" * 40,
                 "source_anchor": {"path": "src/writer.py", "start_line": 3, "end_line": 3}
-                if graph_type == "observed"
+                if graph_type != "target"
                 else None,
                 "confidence": 1.0,
                 "coverage": "complete",
@@ -250,11 +252,11 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
                 "kind": "reads",
                 "from": "table:items",
                 "to": "fn:src/reader.py:read_items",
-                "status": "observed" if graph_type == "observed" else "planned",
+                "status": "planned" if graph_type == "target" else "observed",
                 "provider": "code-review-graph",
                 "git_sha": "a" * 40,
                 "source_anchor": {"path": "src/reader.py", "start_line": 3, "end_line": 3}
-                if graph_type == "observed"
+                if graph_type != "target"
                 else None,
                 "confidence": 1.0,
                 "coverage": "complete",
@@ -267,6 +269,9 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
             {
                 "contract_id": "items-write-read",
                 "storage_node_id": "table:items",
+                "storage_kind": "sql_table",
+                "foreign_key_check": "PRAGMA foreign_key_check;",
+                "foreign_key_check_result": ["zero foreign-key violation rows"],
                 "writers": ["fn:src/writer.py:write_item"],
                 "readers": ["fn:src/reader.py:read_items"],
                 "state_values": ["active", "archived"],
@@ -280,7 +285,7 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
                 "enum_consumers": {"active": ["fn:src/reader.py:read_items"], "archived": ["fn:src/reader.py:read_items"]},
                 "expected_runtime_state": "non-empty",
                 "runtime_evidence": ["SELECT COUNT(*) FROM items > 0", "reader query returns item"],
-                "status": "verified" if graph_type == "observed" else "planned",
+                "status": "verified" if graph_type == "observed" else ("planned" if graph_type == "target" else "observed"),
                 "verification_evidence": ["insert and reader visibility checks"],
                 "implementation_state": "implemented",
             }
@@ -291,6 +296,373 @@ def valid_snapshot(graph_type: str = "observed") -> dict:
 
 
 class GraphEvidenceTests(unittest.TestCase):
+
+    def test_change_diff_references_must_match_current_graph(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": ["fn:ghost:missing"],
+            "removed_nodes": ["fn:src/writer.py:write_item"],
+            "changed_nodes": ["fn:ghost:changed"],
+            "added_edges": ["edge:ghost:added"],
+            "removed_edges": ["writes:fn:src/writer.py:write_item->table:items"],
+            "changed_edges": ["edge:ghost:changed"],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": ["edge:ghost:unresolved"],
+            "impact": ["diff query"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("diff" in error and "unknown" in error for error in errors))
+
+    def test_change_diff_removed_references_must_not_remain_in_current_graph(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": [],
+            "removed_nodes": ["fn:src/writer.py:write_item"],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": ["writes:fn:src/writer.py:write_item->table:items"],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [],
+            "impact": ["diff query"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("removed_nodes" in error and "current graph" in error for error in errors))
+        self.assertTrue(any("removed_edges" in error and "current graph" in error for error in errors))
+
+    def test_change_diff_must_declare_a_change(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": [],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [],
+            "impact": ["no changes"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("requires at least one" in error for error in errors))
+
+    def test_change_diff_unresolved_references_must_match_current_graph(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": [document["nodes"][0]["node_id"]],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": ["edge:ghost:unresolved"],
+            "impact": ["diff query"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("unresolved" in error and "unknown" in error for error in errors))
+
+    def test_contracts_must_be_non_empty(self) -> None:
+        document = valid_snapshot()
+        document["contracts"] = []
+        errors = validate_document(document)
+        self.assertTrue(any("contracts must be a non-empty list" in error for error in errors))
+
+    def test_complete_audit_requires_reviewers(self) -> None:
+        document = valid_snapshot()
+        document["audit_coverage"]["reviewers"] = []
+        errors = validate_document(document)
+        self.assertTrue(any("complete requires reviewers" in error for error in errors))
+
+    def test_evidence_placeholders_are_rejected(self) -> None:
+        for field in ("runtime_evidence", "verification_evidence"):
+            document = valid_snapshot()
+            document["contracts"][0][field] = ["TODO"]
+            errors = validate_document(document)
+            self.assertTrue(any("placeholder" in error for error in errors), field)
+
+    def test_evidence_placeholder_variants_are_rejected(self) -> None:
+        for placeholder in ("TODO", "TBD", "待定", "<...>", "<…>"):
+            document = valid_snapshot()
+            document["contracts"][0]["runtime_evidence"] = [placeholder]
+            errors = validate_document(document)
+            self.assertTrue(any("placeholder" in error for error in errors), placeholder)
+
+    def test_node_and_edge_verification_evidence_reject_placeholders(self) -> None:
+        for collection in ("nodes", "edges"):
+            document = valid_snapshot()
+            document[collection][0]["verification_evidence"] = ["TODO"]
+            errors = validate_document(document)
+            self.assertTrue(any("placeholder" in error for error in errors), collection)
+
+    def test_factual_object_statuses_require_verification_evidence(self) -> None:
+        for collection in ("nodes", "edges", "contracts"):
+            for status in ("observed", "changed", "implemented", "verified"):
+                with self.subTest(collection=collection, status=status):
+                    document = valid_snapshot()
+                    document[collection][0]["status"] = status
+                    document[collection][0]["verification_evidence"] = []
+                    errors = validate_document(document)
+                    self.assertTrue(
+                        any(
+                            f"{collection}[0]" in error
+                            and "requires verification_evidence" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_state_and_enum_maps_reject_undeclared_keys(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract["state_semantics"]["ghost"] = "undocumented"
+        contract["state_producers"]["ghost"] = contract["state_producers"]["active"]
+        contract["state_consumers"]["ghost"] = contract["state_consumers"]["active"]
+        contract["enum_semantics"]["ghost"] = "undocumented"
+        contract["enum_producers"]["ghost"] = contract["enum_producers"]["active"]
+        contract["enum_consumers"]["ghost"] = contract["enum_consumers"]["active"]
+        errors = validate_document(document)
+        self.assertTrue(any("unknown state" in error for error in errors))
+        self.assertTrue(any("unknown enum" in error for error in errors))
+
+    def test_deferred_state_milestones_reject_undeclared_keys(self) -> None:
+        document = valid_snapshot()
+        document["contracts"][0]["state_deferred_milestones"] = {"ghost": "M9"}
+        errors = validate_document(document)
+        self.assertTrue(any("unknown state key" in error for error in errors))
+
+    def test_terminal_states_reject_undeclared_values(self) -> None:
+        document = valid_snapshot()
+        document["contracts"][0]["terminal_states"] = ["ghost"]
+        errors = validate_document(document)
+        self.assertTrue(any("terminal state" in error for error in errors))
+
+    def test_map_only_rejects_implementation_test_chain_status(self) -> None:
+        document = valid_snapshot()
+        document["test_chains"][0]["status"] = "planned"
+        errors = validate_document(document, map_only=True)
+        self.assertTrue(any("map-only status" in error for error in errors))
+
+    def test_map_only_allows_explicitly_deferred_test_chain(self) -> None:
+        document = valid_snapshot()
+        chain = document["test_chains"][0]
+        chain["status"] = "deferred"
+        chain["deferred_reason"] = "External runtime is unavailable"
+        chain["deferred_milestone"] = "M2"
+        self.assertEqual(validate_document(document, map_only=True), [])
+
+    def test_map_only_allows_observed_test_chain(self) -> None:
+        document = valid_snapshot()
+        document["test_chains"][0]["status"] = "observed"
+        self.assertEqual(validate_document(document, map_only=True), [])
+
+    def test_blocked_and_unresolved_nodes_require_recovery_fields(self) -> None:
+        for status, fields in (
+            ("blocked", {"blocked_reason": "provider unavailable", "next_query": "run provider"}),
+            ("unresolved", {"unresolved_reason": "dynamic dispatch", "next_query": "run trace"}),
+        ):
+            document = valid_snapshot()
+            node = document["nodes"][0]
+            node["status"] = status
+            errors = validate_document(document)
+            self.assertTrue(any("recovery" in error or status in error for error in errors), status)
+            node.update(fields)
+            # A verified contract cannot remain verified while one of its
+            # writer/reader/storage dependencies is blocked or unresolved.
+            document["contracts"][0].update(status=status, **fields)
+            for chain in document["test_chains"]:
+                chain.update(status=status, **fields)
+            self.assertEqual(validate_document(document), [], status)
+
+    def test_blocked_and_unresolved_contracts_require_recovery_fields(self) -> None:
+        for status, fields in (
+            ("blocked", {"blocked_reason": "writer not approved", "next_query": "confirm owner"}),
+            ("unresolved", {"unresolved_reason": "consumer is dynamic", "next_query": "trace consumer"}),
+        ):
+            document = valid_snapshot()
+            contract = document["contracts"][0]
+            contract["status"] = status
+            errors = validate_document(document)
+            self.assertTrue(any("recovery" in error or status in error for error in errors), status)
+            contract.update(fields)
+            for chain in document["test_chains"]:
+                chain.update(status=status, **fields)
+            self.assertEqual(validate_document(document), [], status)
+
+    def test_change_diff_unresolved_refs_must_point_to_unresolved_items(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": [document["nodes"][0]["node_id"]],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [document["nodes"][0]["node_id"]],
+            "impact": ["diff query"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("unresolved" in error and "status" in error for error in errors))
+
+    def test_change_graph_evidence_sha_must_match_current_sha(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "c" * 40
+        document["diff"] = {
+            "added_nodes": [document["nodes"][0]["node_id"]],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [],
+            "impact": ["diff query"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("current_sha" in error and "git_sha" in error for error in errors))
+
+    def test_change_graph_requires_distinct_shas_and_nonempty_impact(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "a" * 40
+        document["current_sha"] = "a" * 40
+        document["diff"] = {
+            "added_nodes": [document["nodes"][0]["node_id"]],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [],
+            "impact": [],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("baseline_sha" in error and "current_sha" in error for error in errors))
+        self.assertTrue(any("impact" in error and "non-empty" in error for error in errors))
+
+    def test_change_diff_reference_lists_reject_duplicates(self) -> None:
+        document = valid_snapshot("change")
+        document["baseline_sha"] = "b" * 40
+        document["current_sha"] = "a" * 40
+        node_id = document["nodes"][0]["node_id"]
+        document["diff"] = {
+            "added_nodes": [node_id, node_id],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [],
+            "impact": ["fn:src/reader.py:read_items"],
+            "verification_evidence": ["diff query"],
+        }
+        errors = validate_document(document)
+        self.assertTrue(any("duplicate" in error and "added_nodes" in error for error in errors))
+
+    def test_non_change_graph_cannot_include_change_only_fields(self) -> None:
+        diff = {
+            "added_nodes": ["fn:ghost:nope"],
+            "removed_nodes": [],
+            "changed_nodes": [],
+            "added_edges": [],
+            "removed_edges": [],
+            "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
+            "unresolved": [],
+            "impact": ["diff query"],
+            "verification_evidence": ["diff query"],
+        }
+        for graph_type in ("observed", "target"):
+            for field, value in (
+                ("baseline_sha", "b" * 40),
+                ("current_sha", "a" * 40),
+                ("diff", diff),
+            ):
+                with self.subTest(graph_type=graph_type, field=field):
+                    document = valid_snapshot(graph_type)
+                    document[field] = value
+                    errors = validate_document(document)
+                    self.assertTrue(any(field in error and "change" in error for error in errors), errors)
+
+    def test_deferred_source_anchor_is_validated(self) -> None:
+        document = valid_snapshot()
+        section = document["source_coverage"][0]
+        section["status"] = "deferred"
+        section["explicit_reason"] = "later"
+        section["source_anchor"] = {"path": "", "start_line": 0, "end_line": 0, "extra": "bad"}
+        errors = validate_document(document)
+        self.assertTrue(any("source_anchor" in error for error in errors))
+
+    def test_non_finite_strategy_parameters_are_rejected(self) -> None:
+        for value in (float("nan"), float("inf"), float("-inf")):
+            document = valid_snapshot()
+            contract = document["contracts"][0]
+            contract.update(
+                {
+                    "strategy_name": "example",
+                    "strategy_status": "ready",
+                    "strategy_parameters": value,
+                    "strategy_trigger": "trigger",
+                    "strategy_target": "items",
+                    "strategy_entrypoint": "run",
+                }
+            )
+            errors = validate_document(document)
+            self.assertTrue(any("finite" in error for error in errors), repr(value))
+
+    def test_nested_strategy_parameters_reject_non_finite_numbers(self) -> None:
+        for parameters in ({"decay": float("nan")}, [float("inf")]):
+            document = valid_snapshot()
+            document["contracts"][0].update(
+                {
+                    "strategy_name": "example",
+                    "strategy_status": "ready",
+                    "strategy_parameters": parameters,
+                    "strategy_trigger": "trigger",
+                    "strategy_target": "items",
+                    "strategy_entrypoint": "run",
+                }
+            )
+            errors = validate_document(document)
+            self.assertTrue(any("finite" in error for error in errors), repr(parameters))
 
     @staticmethod
     def _iter_paths(value: object, path: tuple[object, ...] = ()):
@@ -336,14 +708,17 @@ class GraphEvidenceTests(unittest.TestCase):
                         "baseline_sha": "b" * 40,
                         "current_sha": "a" * 40,
                         "diff": {
-                            "added_nodes": [],
+                            "added_nodes": ["fn:src/writer.py:write_item"],
                             "removed_nodes": [],
                             "changed_nodes": [],
                             "added_edges": [],
                             "removed_edges": [],
                             "changed_edges": [],
+                            "added_contracts": [],
+                            "removed_contracts": [],
+                            "changed_contracts": [],
                             "unresolved": [],
-                            "impact": [],
+                            "impact": ["diff impact query"],
                             "verification_evidence": ["diff query"],
                         },
                     }
@@ -446,8 +821,11 @@ class GraphEvidenceTests(unittest.TestCase):
                     "added_edges": [],
                     "removed_edges": [],
                     "changed_edges": [],
+                    "added_contracts": [],
+                    "removed_contracts": [],
+                    "changed_contracts": [],
                     "unresolved": [],
-                    "impact": [],
+                    "impact": ["diff impact query"],
                     "verification_evidence": ["diff query"],
                 }
             document["nodes"][0]["status"] = status
@@ -574,8 +952,11 @@ class GraphEvidenceTests(unittest.TestCase):
             "added_edges": [],
             "removed_edges": [],
             "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
             "unresolved": [],
-            "impact": [],
+            "impact": ["diff impact query"],
             "verification_evidence": [[]],
         }
         errors = validate_document(document)
@@ -742,6 +1123,7 @@ class GraphEvidenceTests(unittest.TestCase):
         self.assertTrue(any("duplicate_query" in error for error in errors))
         contract["null_semantics"] = "partial_index"
         contract["duplicate_query"] = "SELECT subject_abbr, concept_name, COUNT(*) FROM concept_mastery GROUP BY subject_abbr, concept_name HAVING COUNT(*) > 1"
+        contract["duplicate_query_result"] = ["zero duplicate groups"]
         contract["foreign_key_check"] = "PRAGMA foreign_key_check"
         self.assertEqual(validate_document(document), [])
 
@@ -749,8 +1131,15 @@ class GraphEvidenceTests(unittest.TestCase):
         document = valid_snapshot()
         contract = document["contracts"][0]
         contract["storage_kind"] = "sql_table"
+        contract.pop("foreign_key_check", None)
         errors = validate_document(document)
         self.assertTrue(any("foreign_key_check" in error for error in errors))
+
+    def test_contract_requires_storage_kind_to_select_integrity_gate(self) -> None:
+        document = valid_snapshot()
+        document["contracts"][0].pop("storage_kind", None)
+        errors = validate_document(document)
+        self.assertTrue(any("storage_kind" in error for error in errors), errors)
 
     def test_strategy_requires_parameters_or_blocked_status(self) -> None:
         document = valid_snapshot()
@@ -761,6 +1150,30 @@ class GraphEvidenceTests(unittest.TestCase):
         contract["strategy_status"] = "blocked"
         contract["strategy_blocking_reason"] = "half-life not approved"
         self.assertEqual(validate_document(document), [])
+
+    def test_zero_is_a_concrete_strategy_parameter(self) -> None:
+        document = valid_snapshot()
+        contract = document["contracts"][0]
+        contract.update(
+            {
+                "strategy_name": "zero-threshold",
+                "strategy_status": "ready",
+                "strategy_parameters": 0,
+                "strategy_trigger": "on write",
+                "strategy_target": "items",
+                "strategy_entrypoint": "write_item",
+            }
+        )
+        self.assertEqual(validate_document(document), [])
+
+        for empty_parameters in ("", [], {}):
+            with self.subTest(empty_parameters=empty_parameters):
+                contract["strategy_parameters"] = empty_parameters
+                errors = validate_document(document)
+                self.assertTrue(
+                    any("strategy requires strategy_parameters" in error for error in errors),
+                    errors,
+                )
 
     def test_degraded_failure_requires_observable_distinction(self) -> None:
         document = valid_snapshot()
@@ -847,6 +1260,12 @@ class GraphEvidenceTests(unittest.TestCase):
         self.assertTrue(any("baseline_sha" in error for error in errors))
         document["baseline_sha"] = "b" * 40
         document["current_sha"] = "a" * 40
+        document["nodes"][0]["status"] = "changed"
+        document["nodes"][0]["source_anchor"] = {
+            "path": "src/writer.py",
+            "start_line": 1,
+            "end_line": 5,
+        }
         document["diff"] = {
             "added_nodes": [],
             "removed_nodes": [],
@@ -854,6 +1273,9 @@ class GraphEvidenceTests(unittest.TestCase):
             "added_edges": [],
             "removed_edges": [],
             "changed_edges": [],
+            "added_contracts": [],
+            "removed_contracts": [],
+            "changed_contracts": [],
             "unresolved": [],
             "impact": ["fn:src/reader.py:read_items"],
             "verification_evidence": ["diff impact query"],
@@ -988,17 +1410,55 @@ class GraphEvidenceTests(unittest.TestCase):
                 "next_query": "run runtime trace with dispatcher instrumentation",
             }
         )
-        chain = document["test_chains"][0]
-        chain["uncovered_edge_refs"] = ["dynamic:writer->dispatcher"]
+        for chain in document["test_chains"]:
+            chain["uncovered_edge_refs"] = ["dynamic:writer->dispatcher"]
         errors = validate_document(document)
         self.assertTrue(any("expanded" in error or "unresolved" in error for error in errors))
-        chain["test_scope"] = "expanded"
+        for chain in document["test_chains"]:
+            chain["test_scope"] = "expanded"
         self.assertEqual(validate_document(document), [])
 
     def test_schema_file_is_valid_json(self) -> None:
         schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        schema = json.loads(
+            schema_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_pairs,
+        )
         self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+
+    def test_schema_rejects_empty_contracts_and_empty_change_diff(self) -> None:
+        schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertIn("storage_kind", schema["$defs"]["contract"]["required"])
+        for field in ("source_coverage", "nodes", "edges", "contracts", "test_chains"):
+            self.assertEqual(schema["properties"][field]["minItems"], 1, field)
+
+        change_rule = next(
+            condition
+            for condition in schema["allOf"]
+            if condition.get("if", {}).get("properties", {}).get("graph_type", {}).get("const") == "change"
+            and "anyOf" in condition.get("then", {}).get("properties", {}).get("diff", {})
+        )
+        change_conditions = change_rule["then"]["properties"]["diff"]["anyOf"]
+        self.assertEqual(
+            {condition["required"][0] for condition in change_conditions},
+            {
+                "added_nodes", "removed_nodes", "changed_nodes",
+                "added_edges", "removed_edges", "changed_edges",
+                "added_contracts", "removed_contracts", "changed_contracts",
+            },
+        )
+        for condition in change_conditions:
+            self.assertEqual(condition["properties"][condition["required"][0]]["minItems"], 1)
+
+        diff_properties = schema["$defs"]["diff"]["properties"]
+        self.assertEqual(diff_properties["impact"]["minItems"], 1)
+        for field in (
+            "added_nodes", "removed_nodes", "changed_nodes",
+            "added_edges", "removed_edges", "changed_edges",
+            "added_contracts", "removed_contracts", "changed_contracts",
+        ):
+            self.assertTrue(diff_properties[field]["uniqueItems"], field)
 
     def test_schema_failure_mode_matches_validator_enum(self) -> None:
         schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"
