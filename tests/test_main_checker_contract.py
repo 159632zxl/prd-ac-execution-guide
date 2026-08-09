@@ -918,13 +918,24 @@ Blocking ambiguities: none
         self.assertEqual(failures, [])
 
     def test_invalid_incomplete_raw_tag_prefix_remains_visible_text(self) -> None:
-        from scripts.check_prd_ac import check_document
+        from scripts.check_prd_ac import check_document, rendered_section_boundaries
 
-        for literal in ("<script/", "<script=", "<script!"):
+        for literal in (
+            "<script/",
+            "<script=",
+            "<script!",
+            "<div/",
+            "</div/",
+            "</script/",
+        ):
             with self.subTest(literal=literal):
                 failures, _ = check_document(f"{literal}\n{valid_minimal_prd()}")
 
                 self.assertEqual(failures, [])
+                self.assertEqual(
+                    rendered_section_boundaries([literal, "## visible"]),
+                    [(1, 2)],
+                )
 
     def test_unterminated_raw_html_after_visible_prefix_cannot_satisfy_structure(self) -> None:
         from scripts.check_prd_ac import check_document
@@ -1180,6 +1191,497 @@ Blocking ambiguities: none
         failures, _ = check_document(document)
 
         self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_rendered_h1_h2_after_acceptance_invalidates_final_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "   ## Appendix\n\nAdditional notes.",
+            "   # Appendix\n\nAdditional notes.",
+            "> ## Appendix\n> Additional notes.",
+            "- ## Appendix\n\n  Additional notes.",
+            "Appendix\n---\n\nAdditional notes.",
+            "Appendix\n===\n\nAdditional notes.",
+            "> Appendix\n> ---\n> Additional notes.",
+            "- Appendix\n  ---\n\n  Additional notes.",
+            "1. Appendix\n   ---\n\n   Additional notes.",
+            "<h2>Appendix</h2>\n\nAdditional notes.",
+            '<div><H1 class="appendix">Appendix</H1></div>\n\nAdditional notes.',
+            '<h2\n class="appendix">Appendix</h2>\n\nAdditional notes.',
+            "\\\\<h2>Appendix after a literal backslash</h2>",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_nonheading_markup_after_acceptance_remains_in_the_ac_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "### Appendix child\n\nAdditional notes.",
+            "```html\n<h2>Example</h2>\n```",
+            "    ## Indented code",
+            "`<h2>Inline code</h2>`",
+            "``<h2>Multi-backtick inline code</h2>``",
+            "[link](<h2>)",
+            "![image](<h2>)",
+            "[example]: <h2>",
+            r"\<h2>Literal opening tag</h2>",
+            '<div data-label="<h2>">Attribute text</div>',
+            "<div>\n## Literal Markdown heading\nText\n</div>",
+            "<div>\nLiteral Setext heading\n---\nText\n</div>",
+            "> <div>\n> ## Literal quoted heading\n> Text\n> </div>",
+            "- <div>\n  ## Literal list heading\n  Text\n  </div>",
+            "<!-- <h2>Commented heading</h2> -->",
+            "<template><h2>Hidden heading</h2></template>",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+    def test_rendered_inline_html_after_acceptance_invalidates_final_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "](<h2>visible</h2>)",
+            r"\[x](<h2>visible</h2>)",
+            r"\`<h2>visible</h2>`",
+            "[x](<h2>visible</h2>)",
+            "![x](<h2>visible</h2>)",
+            "<div>\n`<h2>visible</h2>`\n</div>",
+            "<div>\n[link](<h2>visible</h2>)\n</div>",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_multiline_code_span_html_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "`start\nx <h2>not heading</h2>\nend`"
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_type_seven_html_tag_cannot_interrupt_a_paragraph(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "paragraph\n<custom>\n## Appendix"
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_reference_definition_title_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            '[ref]: /url\n"<h2>not heading</h2>"',
+            '[ref]: /url\n"not heading"\n---',
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+    def test_reference_like_text_inside_html_block_keeps_html_heading(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "</div>\n  [ref]: <h2>"
+
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_container_code_and_noninterrupting_list_are_not_sections(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            ">     ## not heading",
+            "-     ## not heading",
+            "paragraph\n2. ## not heading",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+    def test_heading_after_container_fence_is_not_masked(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "> ~~~\nTitle\n---",
+            "-\n  ~~~\nTitle\n---",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_container_interrupts_type_six_html_block(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "> <div>\n## visible"
+
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_setext_respects_list_and_blockquote_continuation(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        list_continuation = "- listed\n  Title\n==="
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + list_continuation)
+        self.assertEqual(failures, [])
+
+        blockquote_termination = "> <!--\n-->\n  Title\n---"
+        failures, _ = check_document(
+            valid_minimal_prd() + "\n\n" + blockquote_termination
+        )
+        self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_commonmark_html_blocks_mask_markdown_heading_literals(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "<!DOCTYPE html\n## not heading\n>",
+            "<?processing\n## not heading\n?>",
+            "<![CDATA[\n## not heading\n]]>",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+    def test_consecutive_html_blocks_follow_their_own_termination_rules(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = (
+            "<?x\n## no\n?>\n"
+            "<custom>\n## no\n</custom>\n"
+            ">     ## no\n"
+            "   ## no\n"
+            "`start\n## no\nend`\n"
+            "<custom>\n## no\n</custom>\n___"
+        )
+
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_html_declaration_ends_before_the_following_setext_heading(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = (
+            "<!DOCTYPE html\n## no\n>\n"
+            "Title\n-----\n"
+            "-     ## no"
+        )
+
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_open_type_seven_html_block_masks_following_container_text(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = (
+            "<custom>\n## no\n</custom>\n"
+            "> foo\nbar\n===\n"
+            "foo\n<!-- ## no -->\n"
+            "<!DOCTYPE html\n## no\n>\n"
+            "> ## no"
+        )
+
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_official_commonmark_nonheadings_do_not_create_sections(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "***\n---\n___",
+            "> foo\nbar\n===",
+            "-\n  foo\n-\n  ```\n  bar\n  ```\n-\n      baz",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+    def test_multiline_setext_boundary_uses_the_first_source_line(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        self.assertEqual(rendered_section_boundaries(["alpha", "beta", "---"]), [(0, 2)])
+
+    def test_setext_after_a_quoted_heading_starts_a_new_section(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        lines = ["`## no`", "### child", "> ## visible", "`## no`", "---"]
+
+        self.assertEqual(rendered_section_boundaries(lines), [(2, 2), (3, 2)])
+
+    def test_setext_after_a_closed_quote_is_not_suppressed(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        lines = [
+            "<!-- ## no -->",
+            "foo",
+            "a",
+            "b",
+            "---",
+            "> Title",
+            "> ---",
+            "Title",
+            "===",
+        ]
+
+        self.assertEqual(rendered_section_boundaries(lines), [(1, 2), (5, 2), (7, 1)])
+
+    def test_setext_headings_follow_commonmark_paragraph_and_list_rules(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        cases = (
+            (["- Title", "    ---"], [(0, 2)]),
+            (["1. Title", "    ==="], [(0, 1)]),
+            (["> - Title", ">   ---"], [(0, 2)]),
+            (["===", "---"], [(0, 2)]),
+            (["===", "==="], [(0, 1)]),
+            (["paragraph", "    Title", "---"], [(0, 2)]),
+            (["paragraph", "2. Title", "==="], [(0, 1)]),
+            (["paragraph", "- Title", "   ---"], [(1, 2)]),
+            (["paragraph", "", "  - Title", "    ==="], [(2, 1)]),
+        )
+        for lines, expected in cases:
+            with self.subTest(lines=lines):
+                self.assertEqual(rendered_section_boundaries(lines), expected)
+
+    def test_multiline_inline_html_stays_inside_its_markdown_container(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        cases = (
+            (["> paragraph <h2", '> class="x">Title</h2>'], [(0, 2)]),
+            (["- paragraph <h2", '  class="x">Title</h2>'], [(0, 2)]),
+            (["> - paragraph <h2", '>   class="x">Title</h2>'], [(0, 2)]),
+            (["> paragraph <h2", 'class="x">Title</h2>'], [(0, 2)]),
+            (["> > paragraph <h2", '> class="x">Title</h2>'], [(0, 2)]),
+            (["- paragraph <h2", 'class="x">Title</h2>'], [(0, 2)]),
+            (["> - paragraph <h2", '> class="x">Title</h2>'], [(0, 2)]),
+        )
+        for lines, expected in cases:
+            with self.subTest(lines=lines):
+                self.assertEqual(rendered_section_boundaries(lines), expected)
+
+    def test_container_blank_line_ends_type_seven_html_block(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        lines = ["> <div>", ">", "> ## visible"]
+
+        self.assertEqual(rendered_section_boundaries(lines), [(2, 2)])
+
+    def test_html_control_block_payload_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        variants = (
+            ["<?x <h2>not a heading</h2> ?>"],
+            ["<![CDATA[<h2>not a heading</h2>]]>"],
+            ["<!DECLARATION <h2>not a heading</h2>>"],
+        )
+        for lines in variants:
+            with self.subTest(lines=lines):
+                self.assertEqual(rendered_section_boundaries(lines), [])
+
+    def test_terminated_html_blocks_ignore_blank_lines_until_terminator(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        variants = (
+            ["<?x", "", "<h2>not a heading</h2>", "?>"],
+            ["<![CDATA[", "", "<h2>not a heading</h2>", "]]>"],
+            ["<!DECLARATION", "", "<h2>not a heading</h2>", ">"],
+            ["<script>", "", "<h2>not a heading</h2>", "</script>"],
+            ["<!--", "", "<h2>not a heading</h2>", "-->"],
+        )
+        for lines in variants:
+            with self.subTest(lines=lines):
+                self.assertEqual(rendered_section_boundaries(lines), [])
+
+    def test_html_blocks_do_not_cross_or_invent_containers(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        self.assertEqual(
+            rendered_section_boundaries(
+                ["<?x", "> <h2>not a heading</h2>", "?>"]
+            ),
+            [],
+        )
+        self.assertEqual(
+            rendered_section_boundaries(
+                ["> <?x", "<h2>visible heading</h2> ?>"]
+            ),
+            [(1, 2)],
+        )
+
+    def test_raw_html_heading_uses_the_block_starting_container(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        variants = (
+            ["<custom>", "<h2", ">Title</h2>"],
+            ["> <custom>", "> <h2", "> >Title</h2>"],
+            ["- <custom>", "  <h2", "  >Title</h2>"],
+        )
+        for lines in variants:
+            with self.subTest(lines=lines):
+                self.assertEqual(rendered_section_boundaries(lines), [(1, 2)])
+
+    def test_atx_headings_respect_paragraph_and_list_container_state(self) -> None:
+        from scripts.check_prd_ac import rendered_section_boundaries
+
+        cases = (
+            (["> paragraph", "> 2. ## not a heading"], []),
+            (["### child", "2. ## heading"], [(1, 2)]),
+            (["- paragraph", "2. ## heading"], [(1, 2)]),
+            (["- paragraph", "    ## heading"], [(1, 2)]),
+        )
+        for lines, expected in cases:
+            with self.subTest(lines=lines):
+                self.assertEqual(rendered_section_boundaries(lines), expected)
+
+    def test_unclosed_backtick_scan_remains_linear(self) -> None:
+        from time import perf_counter
+
+        from scripts.check_prd_ac import _blank_inline_heading_literals
+
+        source = "x" + ("`" * 6000)
+
+        started = perf_counter()
+        masked = _blank_inline_heading_literals(source)
+        elapsed = perf_counter() - started
+
+        self.assertEqual(masked, source)
+        self.assertLess(elapsed, 1.0, f"inline scan took {elapsed:.3f}s")
+
+    def test_unclosed_reference_image_scan_remains_linear(self) -> None:
+        from time import perf_counter
+
+        from scripts.check_prd_ac import _blank_inline_heading_literals
+
+        source = "![a][" * 4000
+
+        started = perf_counter()
+        masked = _blank_inline_heading_literals(source, {"IMAGE"})
+        elapsed = perf_counter() - started
+
+        self.assertEqual(masked, source)
+        self.assertLess(elapsed, 1.0, f"reference image scan took {elapsed:.3f}s")
+
+    def test_invalid_commonmark_inline_html_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "p <h2 @> x",
+            "p <h2 a=> x",
+            "p <h2 / > x",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+    def test_unicode_whitespace_inline_html_creates_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        for separator in ("\u00a0", "\u2003", "\u202f"):
+            with self.subTest(separator=repr(separator)):
+                appendix = f"p <h2{separator}>Appendix</h2>"
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_image_alt_html_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "p ![<h2>not a heading</h2>](image.png)"
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_resolved_reference_image_alt_html_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "![<h2>not a heading</h2>][image]\n\n[image]: image.png",
+            "![<h2>not a heading</h2>][]\n\n[<h2>not a heading</h2>]: image.png",
+            "![<h2>not a heading</h2>]\n\n[<h2>not a heading</h2>]: image.png",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+                self.assertEqual(failures, [])
+
+        visible_variants = (
+            "![<h2>visible heading</h2>][missing]",
+            "![<h2>x</h2>]\n\n[x]: image.png",
+            "![<h2>x</h2>][missing]\n\n[<h2>x</h2>]: image.png",
+            "\\![<h2>x</h2>][image]\n\n[image]: image.png",
+            "[<h2>x</h2>][image]\n\n[image]: destination",
+        )
+        for appendix in visible_variants:
+            with self.subTest(visible_appendix=appendix):
+                failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+                self.assertIn("Acceptance Criteria must be the final section", failures)
+
+    def test_html_tag_cannot_cross_a_commonmark_block_boundary(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "p <h2\n> quoted text"
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_link_destination_parenthesis_limit_controls_html_visibility(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        hidden = "[x](" + "(" * 32 + "<h2>hidden</h2>" + ")" * 32 + ")"
+        visible = "[x](" + "(" * 33 + "<h2>visible</h2>" + ")" * 33 + ")"
+
+        hidden_failures, _ = check_document(valid_minimal_prd() + "\n\n" + hidden)
+        visible_failures, _ = check_document(valid_minimal_prd() + "\n\n" + visible)
+
+        self.assertEqual(hidden_failures, [])
+        self.assertIn("Acceptance Criteria must be the final section", visible_failures)
+
+    def test_caret_reference_definition_title_does_not_create_a_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = '[^ref]: /url\n"<h2>not a heading</h2>"'
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_code_span_backslashes_follow_commonmark_delimiter_rules(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        hidden = "p `<h2>not a heading</h2>\\` z"
+        visible = "p `a\\`<h2>Appendix</h2>` z"
+
+        hidden_failures, _ = check_document(valid_minimal_prd() + "\n\n" + hidden)
+        visible_failures, _ = check_document(valid_minimal_prd() + "\n\n" + visible)
+
+        self.assertEqual(hidden_failures, [])
+        self.assertIn("Acceptance Criteria must be the final section", visible_failures)
 
     def test_inline_nonsemantic_html_cannot_satisfy_required_content(self) -> None:
         from scripts.check_prd_ac import check_document

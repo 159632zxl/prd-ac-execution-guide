@@ -67,6 +67,16 @@ HTML_ATTRIBUTE_RE = re.compile(
     r"(?P<bare>[^\s\"'=<>`]+)))?",
     re.ASCII,
 )
+COMMONMARK_HTML_ATTRIBUTE = (
+    r"(?:\s+[A-Za-z_:][A-Za-z0-9:._-]*"
+    r"(?:\s*=\s*(?:[^\"'=<>`\x00-\x20]+|'[^']*'|\"[^\"]*\"))?)"
+)
+COMMONMARK_HTML_OPEN_TAG_RE = re.compile(
+    rf"<(?P<tag>[A-Za-z][A-Za-z0-9-]*){COMMONMARK_HTML_ATTRIBUTE}*\s*/?>"
+)
+COMMONMARK_HTML_CLOSE_TAG_RE = re.compile(
+    r"</[A-Za-z][A-Za-z0-9-]*\s*>"
+)
 VOID_HTML_TAGS = {
     "area",
     "base",
@@ -83,6 +93,72 @@ VOID_HTML_TAGS = {
     "track",
     "wbr",
 }
+COMMONMARK_BLOCK_HTML_TAGS = frozenset(
+    {
+        "address",
+        "article",
+        "aside",
+        "base",
+        "basefont",
+        "blockquote",
+        "body",
+        "caption",
+        "center",
+        "col",
+        "colgroup",
+        "dd",
+        "details",
+        "dialog",
+        "dir",
+        "div",
+        "dl",
+        "dt",
+        "fieldset",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "frame",
+        "frameset",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "head",
+        "header",
+        "hr",
+        "html",
+        "iframe",
+        "legend",
+        "li",
+        "link",
+        "main",
+        "menu",
+        "menuitem",
+        "nav",
+        "noframes",
+        "ol",
+        "optgroup",
+        "option",
+        "p",
+        "param",
+        "search",
+        "section",
+        "summary",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "title",
+        "tr",
+        "track",
+        "ul",
+    }
+)
 AC_ID_RE = re.compile(
     r"^(?:G-\d{2}|(?:P0|M\d+)-[A-Z0-9]+(?:-[A-Z0-9]+)*)$"
 )
@@ -404,7 +480,7 @@ def reference_definition_spans(
         prefix = REFERENCE_CONTAINER_PREFIX_RE.match(lines[index])
         assert prefix is not None
         first = lines[index][prefix.end() :]
-        if not first.startswith("[") or first.startswith("[^"):
+        if not first.startswith("["):
             index += 1
             continue
         quote_depth = prefix.group(0).count(">")
@@ -459,6 +535,833 @@ def reference_definition_spans(
             label_line = continuation
         index += 1
     return spans
+
+
+def _blank_characters(value: str, spans: list[tuple[int, int]]) -> str:
+    if not spans:
+        return value
+    characters = list(value)
+    for start, end in spans:
+        for index in range(start, end):
+            if characters[index] not in "\r\n":
+                characters[index] = " "
+    return "".join(characters)
+
+
+def _backtick_runs(value: str) -> list[tuple[int, int]]:
+    runs: list[tuple[int, int]] = []
+    cursor = 0
+    while cursor < len(value):
+        if value[cursor] != "`":
+            cursor += 1
+            continue
+        end = cursor + 1
+        while end < len(value) and value[end] == "`":
+            end += 1
+        runs.append((cursor, end))
+        cursor = end
+    return runs
+
+
+def _blank_code_spans(value: str) -> str:
+    runs = _backtick_runs(value)
+    if not runs:
+        return value
+
+    next_same_length: list[int | None] = [None] * len(runs)
+    latest_by_length: dict[int, int] = {}
+    for index in range(len(runs) - 1, -1, -1):
+        start, end = runs[index]
+        length = end - start
+        next_same_length[index] = latest_by_length.get(length)
+        latest_by_length[length] = index
+
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(runs):
+        if _escaped_at(value, runs[index][0]):
+            index += 1
+            continue
+        closing_index = next_same_length[index]
+        if closing_index is None:
+            index += 1
+            continue
+        spans.append((runs[index][0], runs[closing_index][1]))
+        index = closing_index + 1
+    return _blank_characters(value, spans)
+
+
+def _escaped_at(value: str, index: int) -> bool:
+    backslashes = 0
+    cursor = index - 1
+    while cursor >= 0 and value[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+    return bool(backslashes % 2)
+
+
+def _normalize_reference_label(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip()).lower().upper()
+
+
+def _matching_inline_label_ends(value: str) -> dict[int, int]:
+    openers: list[int] = []
+    matches: dict[int, int] = {}
+    preceding_backslashes = 0
+    for index, character in enumerate(value):
+        if character == "\\":
+            preceding_backslashes += 1
+            continue
+        escaped = bool(preceding_backslashes % 2)
+        preceding_backslashes = 0
+        if escaped:
+            continue
+        if character == "[":
+            openers.append(index)
+        elif character == "]" and openers:
+            matches[openers.pop()] = index
+    return matches
+
+
+def _inline_link_end(value: str, opener: int) -> int | None:
+    cursor = opener + 1
+    depth = 0
+    quote: str | None = None
+    while cursor < len(value):
+        character = value[cursor]
+        if character in "\r\n" and cursor + 1 < len(value) and value[cursor + 1] in "\r\n":
+            return None
+        if character == "\\" and cursor + 1 < len(value):
+            cursor += 2
+            continue
+        if quote:
+            if character == quote:
+                quote = None
+        elif character in "\"'":
+            quote = character
+        elif character == "(":
+            depth += 1
+            if depth > 32:
+                return None
+        elif character == ")":
+            if depth == 0:
+                return cursor + 1
+            depth -= 1
+        cursor += 1
+    return None
+
+
+def _blank_link_destinations(
+    value: str,
+    reference_labels: set[str] | frozenset[str] = frozenset(),
+) -> str:
+    brackets: list[int] = []
+    spans: list[tuple[int, int]] = []
+    reference_label_ends = (
+        _matching_inline_label_ends(value) if reference_labels else {}
+    )
+    cursor = 0
+    while cursor < len(value):
+        character = value[cursor]
+        if character == "[" and not _escaped_at(value, cursor):
+            brackets.append(cursor)
+        elif character == "]" and not _escaped_at(value, cursor) and brackets:
+            label_start = brackets.pop()
+            opener = cursor + 1
+            is_image = (
+                label_start > 0
+                and value[label_start - 1] == "!"
+                and not _escaped_at(value, label_start - 1)
+            )
+            if opener < len(value) and value[opener] == "(":
+                end = _inline_link_end(value, opener)
+                destination_valid = False
+                if end is not None:
+                    destination_valid, _ = _parse_reference_destination(
+                        value[opener + 1 : end - 1]
+                    )
+                if end is not None and destination_valid:
+                    spans.append((opener, end))
+                    if is_image:
+                        spans.append((label_start, cursor + 1))
+                    cursor = end
+                    continue
+            elif is_image and reference_labels:
+                label = value[label_start + 1 : cursor]
+                reference_end = cursor + 1
+                if opener < len(value) and value[opener] == "[":
+                    explicit_end = reference_label_ends.get(opener)
+                    if explicit_end is not None:
+                        explicit_label = value[opener + 1 : explicit_end]
+                        if explicit_label:
+                            label = explicit_label
+                        reference_end = explicit_end + 1
+                if _normalize_reference_label(label) in reference_labels:
+                    spans.append((label_start - 1, reference_end))
+                    cursor = reference_end
+                    continue
+        cursor += 1
+    return _blank_characters(value, spans)
+
+
+def _blank_inline_heading_literals(
+    value: str,
+    reference_labels: set[str] | frozenset[str] = frozenset(),
+) -> str:
+    return _blank_link_destinations(
+        _blank_code_spans(value), reference_labels=reference_labels
+    )
+
+
+def _reference_definition_lines(lines: list[str]) -> set[int]:
+    spans_by_start = {span.start: span for span in reference_definition_spans(lines)}
+    masked: set[int] = set()
+    title_may_follow = False
+    title_quote_depth = 0
+    index = 0
+    while index < len(lines):
+        span = spans_by_start.get(index)
+        if span is not None:
+            masked.update(range(span.start, span.end + 1))
+            index = span.end + 1
+            title_may_follow = span.title_may_follow
+            title_quote_depth = span.quote_depth
+            continue
+        title_body = _reference_continuation_body(
+            lines[index], quote_depth=title_quote_depth
+        )
+        if (
+            title_may_follow
+            and title_body is not None
+            and REFERENCE_TITLE_RE.fullmatch(title_body.strip())
+        ):
+            masked.add(index)
+        title_may_follow = False
+        title_quote_depth = 0
+        index += 1
+    return masked
+
+
+def _commonmark_html_block_start(
+    line: str, *, paragraph_open: bool
+) -> tuple[str | None, bool] | None:
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return None
+
+    raw_tag = re.match(
+        r"<(?P<tag>script|pre|style|textarea)(?=[ \t>]|$)",
+        stripped,
+        re.I,
+    )
+    if raw_tag:
+        return rf"</\s*{re.escape(raw_tag.group('tag'))}\s*>", False
+    if stripped.startswith("<!--"):
+        return "-->", False
+    if stripped.startswith("<?"):
+        return r"\?>", False
+    if re.match(r"<![A-Z]", stripped):
+        return ">", False
+    if stripped.startswith("<![CDATA["):
+        return r"\]\]>", False
+
+    match = re.match(
+        r"^ {0,3}<(?P<closing>/)?(?P<tag>[A-Za-z][\w:-]*)",
+        line,
+        re.ASCII,
+    )
+    if not match:
+        return None
+    tag = match.group("tag").casefold()
+    tail = line[match.end() :]
+    if tag in COMMONMARK_BLOCK_HTML_TAGS and (
+        not tail
+        or tail[0] in " \t>"
+        or re.match(r"/\s*>", tail)
+    ):
+        return None, True
+    tag_end = _html_tag_end(line, match.end())
+    if paragraph_open or tag_end is None or line[tag_end + 1 :].strip():
+        return None
+    return None, True
+
+
+def _strip_html_block_container(
+    line: str,
+    quote_depth: int,
+    list_content_indent: int | None,
+) -> str | None:
+    if quote_depth == 0 and list_content_indent is None:
+        return line
+
+    cursor = 0
+    for _ in range(quote_depth):
+        marker = re.match(r" {0,3}>[ \t]?", line[cursor:])
+        if marker is None:
+            return None
+        cursor += marker.end()
+
+    if list_content_indent is not None:
+        while (
+            cursor < len(line)
+            and line[cursor] in " \t"
+            and len(line[:cursor].expandtabs(4)) < list_content_indent
+        ):
+            cursor += 1
+        if len(line[:cursor].expandtabs(4)) < list_content_indent:
+            return "" if not line[cursor:].strip() else None
+    return line[cursor:]
+
+
+def _mask_markdown_in_html_blocks(
+    lines: list[str],
+) -> tuple[list[str], dict[int, tuple[int, str]], set[int]]:
+    masked: list[str] = []
+    raw_html_lines: dict[int, tuple[int, str]] = {}
+    opaque_html_lines: set[int] = set()
+    html_container: tuple[int, int | None, str | None, bool, int] | None = None
+    next_html_block_id = 0
+    paragraph_open = False
+    previous_container: tuple[int, int | None] | None = None
+    for line_index, line in enumerate(lines):
+        container = REFERENCE_CONTAINER_PREFIX_RE.match(line)
+        assert container is not None
+        prefix = container.group(0)
+        body = line[container.end() :]
+        quote_depth = prefix.count(">")
+        has_list_marker = bool(
+            re.search(r"(?:[-+*]|\d{1,9}[.)])[ \t]+", prefix)
+        )
+        prefix_width = len(prefix.expandtabs(4))
+        container_key = (quote_depth, prefix_width if has_list_marker else None)
+        if (
+            previous_container is not None
+            and container_key != previous_container
+            and not (
+                previous_container[0] > 0
+                and quote_depth == 0
+                and paragraph_open
+            )
+        ):
+            paragraph_open = False
+        previous_container = container_key
+
+        if html_container is not None:
+            (
+                block_quote_depth,
+                list_content_indent,
+                terminator,
+                scan_html,
+                block_id,
+            ) = html_container
+            block_body = _strip_html_block_container(
+                line,
+                block_quote_depth,
+                list_content_indent,
+            )
+            same_container = block_body is not None
+            if (
+                same_container
+                and terminator is None
+                and not block_body.strip()
+            ):
+                html_container = None
+                paragraph_open = False
+                masked.append(line)
+                continue
+            if same_container:
+                masked.append(" " * len(line))
+                raw_html_lines[line_index] = (block_id, block_body)
+                if not scan_html:
+                    opaque_html_lines.add(line_index)
+                if terminator is not None and re.search(terminator, block_body, re.I):
+                    html_container = None
+                continue
+            html_container = None
+            paragraph_open = False
+
+        block_start = _commonmark_html_block_start(
+            body, paragraph_open=paragraph_open
+        )
+        if block_start is not None:
+            terminator, scan_html = block_start
+            block_id = next_html_block_id
+            next_html_block_id += 1
+            html_container = (
+                quote_depth,
+                prefix_width if has_list_marker else None,
+                terminator,
+                scan_html,
+                block_id,
+            )
+            masked.append(" " * len(line))
+            raw_html_lines[line_index] = (block_id, body)
+            if not scan_html:
+                opaque_html_lines.add(line_index)
+            terminator_value = body if body.strip() else line.strip()
+            if terminator is not None and re.search(terminator, terminator_value, re.I):
+                html_container = None
+            paragraph_open = False
+        else:
+            masked.append(line)
+            if not body.strip():
+                paragraph_open = False
+            elif (
+                re.match(r"^ {0,3}#{1,6}(?:[ \t]+|$)", body)
+                or _standalone_list_marker(body)
+                or _thematic_break(body)
+            ):
+                paragraph_open = False
+            else:
+                paragraph_open = True
+    return masked, raw_html_lines, opaque_html_lines
+
+
+def _preserve_html_comments_for_heading_scan(lines: list[str]) -> list[str]:
+    """Hide comment payload while retaining its block-level structure."""
+
+    preserved: list[str] = []
+    comment_open = False
+    for line in lines:
+        value, comment_open = _preserve_html_comment_structure(
+            line, comment_open=comment_open
+        )
+        preserved.append(value)
+    return preserved
+
+
+def _preserve_html_comment_structure(
+    line: str, *, comment_open: bool
+) -> tuple[str, bool]:
+    """Hide comment payload while retaining delimiters for block parsing."""
+
+    parts: list[str] = []
+    cursor = 0
+    while cursor < len(line):
+        if comment_open:
+            end = line.find("-->", cursor)
+            if end < 0:
+                cursor = len(line)
+                break
+            parts.append("-->")
+            comment_open = False
+            cursor = end + 3
+            continue
+        start = line.find("<!--", cursor)
+        if start < 0:
+            parts.append(line[cursor:])
+            break
+        parts.append(line[cursor:start])
+        parts.append("<!--")
+        comment_open = True
+        cursor = start + 4
+    preserved = "".join(parts)
+    if not preserved.strip() and line.strip():
+        preserved = "<!-- -->"
+    return preserved, comment_open
+
+
+def _mask_inline_heading_literals(
+    lines: list[str],
+    raw_html_lines: set[int],
+    reference_labels: set[str],
+) -> list[str]:
+    masked = list(lines)
+    segment_start = 0
+    for index in range(len(lines) + 1):
+        boundary = (
+            index == len(lines)
+            or index in raw_html_lines
+            or not lines[index].strip()
+        )
+        if not boundary:
+            continue
+        if segment_start < index:
+            segment = "\n".join(lines[segment_start:index])
+            masked[segment_start:index] = _blank_inline_heading_literals(
+                segment, reference_labels=reference_labels
+            ).split("\n")
+        segment_start = index + 1
+    return masked
+
+
+def _thematic_break(value: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r" {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})",
+            value,
+        )
+    )
+
+
+def _standalone_list_marker(value: str) -> bool:
+    return bool(re.fullmatch(r" {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]*", value))
+
+
+def _container_heading_body(line: str) -> tuple[str, int, bool, bool, int]:
+    leading = len(line) - len(line.lstrip(" "))
+    if leading > 3:
+        return line[leading:], 0, False, True, leading
+    cursor = leading
+    quote_depth = 0
+    list_marker = False
+    content_indent = cursor
+    while cursor < len(line):
+        if line[cursor] == ">":
+            quote_depth += 1
+            cursor += 1
+            if cursor < len(line) and line[cursor] in " \t":
+                cursor += 1
+            content_indent = cursor
+            continue
+        marker = re.match(r"(?:[-+*]|\d{1,9}[.)])([ \t]+)", line[cursor:])
+        if marker is None:
+            break
+        list_marker = True
+        marker_width = marker.end() - len(marker.group(1))
+        padding_width = len(marker.group(1).expandtabs(4))
+        if padding_width > 4:
+            cursor += marker_width + 1
+            remaining_indent = padding_width - 1
+            return (
+                line[cursor:],
+                quote_depth,
+                list_marker,
+                remaining_indent >= 4,
+                cursor,
+            )
+        cursor += marker.end()
+        content_indent = cursor
+    remaining_indent = 0
+    while cursor < len(line) and line[cursor] in " \t":
+        remaining_indent += 4 if line[cursor] == "\t" else 1
+        cursor += 1
+    return line[cursor:], quote_depth, list_marker, remaining_indent >= 4, content_indent
+
+
+def _list_marker_info(line: str) -> tuple[int, str] | None:
+    prefix = REFERENCE_CONTAINER_PREFIX_RE.match(line)
+    assert prefix is not None
+    markers = list(
+        re.finditer(r"(?:[-+*]|\d{1,9}[.)])(?=[ \t]+)", prefix.group(0))
+    )
+    if not markers:
+        return None
+    return markers[0].start(), markers[-1].group(0)
+
+
+def _list_marker_can_interrupt_paragraph(line: str) -> bool:
+    marker = _list_marker_info(line)
+    if marker is None:
+        return False
+    token = marker[1]
+    return token in {"-", "+", "*"} or bool(re.match(r"1[.)]", token))
+
+
+def _heading_scan_lines(
+    lines: list[str],
+) -> tuple[list[str], list[str], dict[int, int]]:
+    heading_lines = _preserve_html_comments_for_heading_scan(lines)
+    markdown_lines, raw_html_contexts, opaque_html_lines = (
+        _mask_markdown_in_html_blocks(heading_lines)
+    )
+    raw_html_blocks = {
+        index: block_id
+        for index, (block_id, _) in raw_html_contexts.items()
+    }
+    for index, (_, body) in raw_html_contexts.items():
+        heading_lines[index] = body
+    reference_labels = {
+        _normalize_reference_label(span.label)
+        for span in reference_definition_spans(markdown_lines)
+    }
+    reference_lines = _reference_definition_lines(markdown_lines)
+    for index in reference_lines:
+        markdown_lines[index] = " " * len(markdown_lines[index])
+        heading_lines[index] = " " * len(heading_lines[index])
+    for index in opaque_html_lines:
+        heading_lines[index] = " " * len(heading_lines[index])
+    inline_masked = _mask_inline_heading_literals(
+        heading_lines, set(raw_html_blocks), reference_labels
+    )
+    return markdown_lines, inline_masked, raw_html_blocks
+
+
+def _starts_inline_block(line: str) -> bool:
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return True
+    return bool(
+        re.match(r"(?:>|#{1,6}(?:[ \t]+|$)|`{3,}|~{3,})", stripped)
+        or re.match(r"(?:[-+*]|\d{1,9}[.)])[ \t]+", stripped)
+        or _thematic_break(stripped)
+    )
+
+
+def _html_heading_boundaries(
+    lines: list[str], raw_html_blocks: dict[int, int]
+) -> set[tuple[int, int]]:
+    """Find CommonMark-valid HTML H1/H2 start tags without crossing blocks."""
+
+    boundaries: set[tuple[int, int]] = set()
+    segment: list[tuple[int, str]] = []
+    segment_is_raw = False
+    segment_raw_block_id: int | None = None
+    segment_container: tuple[int, int | None] | None = None
+    active_list: tuple[int, int] | None = None
+
+    def scan_segment() -> None:
+        if not segment:
+            return
+        value = "\n".join(line for _, line in segment)
+        cursor = 0
+        while cursor < len(value):
+            opener = value.find("<", cursor)
+            if opener < 0:
+                break
+            if _escaped_at(value, opener):
+                cursor = opener + 1
+                continue
+            match = COMMONMARK_HTML_OPEN_TAG_RE.match(value, opener)
+            if match is not None:
+                tag = match.group("tag").casefold()
+                if tag in {"h1", "h2"}:
+                    line_offset = value.count("\n", 0, opener)
+                    boundaries.add((segment[line_offset][0], int(tag[1])))
+                cursor = match.end()
+                continue
+            closing = COMMONMARK_HTML_CLOSE_TAG_RE.match(value, opener)
+            cursor = closing.end() if closing is not None else opener + 1
+
+    for index, line in enumerate(lines):
+        raw_block_id = raw_html_blocks.get(index)
+        is_raw = index in raw_html_blocks
+        if is_raw:
+            body = line
+            has_list_marker = False
+            container_key = None
+            lazy_continuation = False
+            active_list = None
+        else:
+            body, quote_depth, has_list_marker, _, content_indent = (
+                _container_heading_body(line)
+            )
+            body_start = len(line) - len(body)
+            interrupts_paragraph = bool(
+                has_list_marker
+                or _starts_inline_block(body)
+                or _commonmark_html_block_start(body, paragraph_open=True)
+                is not None
+            )
+            previous_active_list = active_list
+            lazy_list_continuation = bool(
+                segment
+                and not segment_is_raw
+                and previous_active_list is not None
+                and body.strip()
+                and body_start < previous_active_list[1]
+                and quote_depth <= previous_active_list[0]
+                and not interrupts_paragraph
+            )
+            if has_list_marker:
+                active_list = (quote_depth, content_indent)
+            elif active_list is not None and (
+                quote_depth != active_list[0]
+                or (body.strip() and body_start < active_list[1])
+            ) and not lazy_list_continuation:
+                active_list = None
+            container_key = (
+                quote_depth,
+                active_list[1]
+                if active_list is not None and quote_depth == active_list[0]
+                else None,
+            )
+            lazy_quote_continuation = bool(
+                segment
+                and segment_container is not None
+                and not segment_is_raw
+                and body.strip()
+                and quote_depth < segment_container[0]
+                and not interrupts_paragraph
+            )
+            lazy_continuation = (
+                lazy_list_continuation or lazy_quote_continuation
+            )
+        starts_new = bool(
+            segment
+            and (
+                not body.strip()
+                or is_raw != segment_is_raw
+                or (
+                    is_raw
+                    and raw_block_id != segment_raw_block_id
+                )
+                or (
+                    not is_raw
+                    and container_key != segment_container
+                    and not lazy_continuation
+                )
+                or (
+                    not is_raw
+                    and (has_list_marker or _starts_inline_block(body))
+                )
+            )
+        )
+        if starts_new:
+            scan_segment()
+            segment = []
+        if not body.strip():
+            continue
+        if not segment:
+            segment_is_raw = is_raw
+            segment_raw_block_id = raw_block_id
+            segment_container = container_key
+        segment.append((index, body))
+    scan_segment()
+    return boundaries
+
+
+def rendered_section_boundaries(
+    lines: list[str], *, scan_lines: list[str] | None = None
+) -> list[tuple[int, int]]:
+    """Return visible rendered H1/H2 boundaries as (line index, level)."""
+
+    source_lines = lines if scan_lines is None else scan_lines
+    markdown_lines, html_lines, raw_html_lines = _heading_scan_lines(source_lines)
+    boundaries: set[tuple[int, int]] = set()
+    contexts: list[tuple[str, int, bool, bool, int]] = []
+    paragraph_origins: list[int | None] = []
+    paragraph_start: int | None = None
+    previous_quote_depth = 0
+    for index, line in enumerate(markdown_lines):
+        raw_context = _container_heading_body(line)
+        body, quote_depth, has_list_marker, indented_code, content_indent = (
+            raw_context
+        )
+        raw_body, raw_quote_depth, raw_has_list, _, _ = raw_context
+        raw_body_start = len(line) - len(raw_body)
+        marker_info = _list_marker_info(line)
+        container_line = line
+
+        if raw_quote_depth != previous_quote_depth:
+            paragraph_start = None
+        previous_quote_depth = raw_quote_depth
+
+        if paragraph_start is not None:
+            origin_context = contexts[paragraph_start]
+            (
+                _,
+                origin_quote_depth,
+                origin_has_list,
+                _,
+                origin_content_indent,
+            ) = origin_context
+            if origin_has_list and raw_quote_depth == origin_quote_depth:
+                marker_inside_list = bool(
+                    marker_info is None or marker_info[0] >= origin_content_indent
+                )
+                if marker_inside_list and raw_body_start >= origin_content_indent:
+                    container_line = line[origin_content_indent:]
+                    inner_context = _container_heading_body(container_line)
+                    (
+                        body,
+                        inner_quote_depth,
+                        has_list_marker,
+                        indented_code,
+                        inner_content_indent,
+                    ) = inner_context
+                    quote_depth = origin_quote_depth + inner_quote_depth
+                    content_indent = origin_content_indent + inner_content_indent
+                elif raw_has_list or re.match(
+                    r"^#{1,6}(?:[ \t]+|$)", raw_body
+                ) or _thematic_break(raw_body):
+                    paragraph_start = None
+
+        contexts.append(
+            (body, quote_depth, has_list_marker, indented_code, content_indent)
+        )
+
+        if not body.strip():
+            paragraph_start = None
+            paragraph_origins.append(None)
+            continue
+        if indented_code:
+            paragraph_origins.append(paragraph_start)
+            continue
+
+        atx = re.match(r"^(#{1,6})(?:[ \t]+|$)", body)
+        ordered_noninterrupting = bool(
+            paragraph_start is not None
+            and has_list_marker
+            and not _list_marker_can_interrupt_paragraph(container_line)
+        )
+        if atx and not ordered_noninterrupting:
+            if len(atx.group(1)) <= 2:
+                boundaries.add((index, len(atx.group(1))))
+            paragraph_start = None
+        elif _thematic_break(body) or _standalone_list_marker(body):
+            paragraph_start = None
+        elif has_list_marker:
+            if paragraph_start is None or _list_marker_can_interrupt_paragraph(
+                container_line
+            ):
+                paragraph_start = index
+        elif paragraph_start is None:
+            paragraph_start = index
+        paragraph_origins.append(paragraph_start)
+
+    for index in range(1, len(contexts)):
+        body, quote_depth, has_list_marker, indented_code, content_indent = contexts[
+            index
+        ]
+        underline = re.fullmatch(r"[ \t]*(=+|-+)[ \t]*", body)
+        if (
+            not underline
+            or has_list_marker
+            or indented_code
+            or _standalone_list_marker(markdown_lines[index])
+        ):
+            continue
+        (
+            previous_body,
+            previous_quote_depth,
+            previous_has_list,
+            previous_indented_code,
+            previous_content_indent,
+        ) = (
+            contexts[index - 1]
+        )
+        previous_text = previous_body.strip()
+        paragraph_origin = paragraph_origins[index - 1]
+        if (
+            not previous_text
+            or previous_quote_depth > quote_depth
+            or quote_depth != previous_quote_depth
+            or (previous_indented_code and paragraph_origin is None)
+            or re.match(r"^#{1,6}(?:[ \t]+|$)", previous_text)
+            or _thematic_break(previous_body)
+            or paragraph_origin is None
+        ):
+            continue
+        origin_context = contexts[paragraph_origin]
+        if origin_context[2] and content_indent < origin_context[4]:
+            continue
+        level = 1 if underline.group(1).startswith("=") else 2
+        start = paragraph_origin
+        if (
+            start > 0
+            and contexts[start - 1][1] > quote_depth
+            and start == index - 1
+            and not re.match(r"^#{1,6}(?:[ \t]+|$)", contexts[start - 1][0])
+            and not re.fullmatch(
+                r"[ \t]*(?:=+|-+)[ \t]*", contexts[start - 1][0]
+            )
+        ):
+            continue
+        boundaries.add((start, level))
+
+    boundaries.update(_html_heading_boundaries(html_lines, raw_html_lines))
+    return sorted(boundaries)
 
 
 def mask_hidden_html(text: str) -> str:
@@ -626,21 +1529,47 @@ def is_markdown_table_row(line: str) -> bool:
     return bool(content) and bool(re.search(r"(?<!\\)\|", content))
 
 
-def mask_fenced_lines(text: str) -> list[str]:
+def mask_fenced_lines(
+    text: str, *, preserve_html_comments: bool = False
+) -> list[str]:
     text = mask_hidden_html(text)
     masked: list[str] = []
-    fence: tuple[str, int] | None = None
+    fence: tuple[str, int, int, int | None] | None = None
     html_comment = False
     raw_html_tag: str | None = None
+    active_list_indent: int | None = None
     for line in text.splitlines():
         if fence is not None:
-            marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-            if marker:
-                token = marker.group(1)
-                if token[0] == fence[0] and len(token) >= fence[1] and not marker.group(2).strip():
-                    fence = None
-            masked.append("")
-            continue
+            marker_character, marker_length, fence_quote_depth, list_indent = fence
+            body, quote_depth, has_list_marker, indented_code, content_indent = (
+                _container_heading_body(line)
+            )
+            parent_closed = quote_depth < fence_quote_depth or bool(
+                list_indent is not None
+                and line.strip()
+                and (has_list_marker or content_indent < list_indent)
+            )
+            if not parent_closed:
+                marker = (
+                    re.match(r"^(`{3,}|~{3,})(.*)$", body)
+                    if quote_depth == fence_quote_depth
+                    and not has_list_marker
+                    and not indented_code
+                    else None
+                )
+                if marker:
+                    token = marker.group(1)
+                    if (
+                        token[0] == marker_character
+                        and len(token) >= marker_length
+                        and not marker.group(2).strip()
+                    ):
+                        fence = None
+                masked.append("")
+                continue
+            fence = None
+            if list_indent is not None:
+                active_list_indent = None
 
         if raw_html_tag is not None:
             if raw_html_tag != "plaintext" and re.search(
@@ -650,36 +1579,69 @@ def mask_fenced_lines(text: str) -> list[str]:
             masked.append("")
             continue
 
-        visible_parts: list[str] = []
-        cursor = 0
-        while cursor < len(line):
-            if html_comment:
-                comment_end = line.find("-->", cursor)
-                if comment_end < 0:
-                    cursor = len(line)
+        if preserve_html_comments:
+            visible_line, html_comment = _preserve_html_comment_structure(
+                line, comment_open=html_comment
+            )
+        else:
+            visible_parts: list[str] = []
+            cursor = 0
+            while cursor < len(line):
+                if html_comment:
+                    comment_end = line.find("-->", cursor)
+                    if comment_end < 0:
+                        cursor = len(line)
+                        break
+                    html_comment = False
+                    cursor = comment_end + 3
+                    continue
+                comment_start = line.find("<!--", cursor)
+                if comment_start < 0:
+                    visible_parts.append(line[cursor:])
                     break
-                html_comment = False
-                cursor = comment_end + 3
-                continue
-            comment_start = line.find("<!--", cursor)
-            if comment_start < 0:
-                visible_parts.append(line[cursor:])
-                break
-            visible_parts.append(line[cursor:comment_start])
-            html_comment = True
-            cursor = comment_start + 4
-
-        visible_line = "".join(visible_parts)
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", visible_line)
+                visible_parts.append(line[cursor:comment_start])
+                html_comment = True
+                cursor = comment_start + 4
+            visible_line = "".join(visible_parts)
+        body, quote_depth, has_list_marker, container_indented, content_indent = (
+            _container_heading_body(visible_line)
+        )
         indented_code = visible_line.startswith("\t") or visible_line.startswith("    ")
+        if has_list_marker:
+            active_list_indent = content_indent
+        elif _standalone_list_marker(body):
+            marker_text = body.strip()
+            active_list_indent = content_indent + len(marker_text) + 1
+        elif (
+            active_list_indent is not None
+            and visible_line.strip()
+            and content_indent < active_list_indent
+        ):
+            active_list_indent = None
+
+        marker = (
+            None
+            if container_indented
+            else re.match(r"^(`{3,}|~{3,})(.*)$", body)
+        )
+        if marker and marker.group(1).startswith("`") and "`" in marker.group(2):
+            marker = None
         raw_opener = (
             None
-            if marker or indented_code
+            if marker or container_indented
             else _raw_text_html_opener(visible_line)
         )
         if marker:
             token = marker.group(1)
-            fence = (token[0], len(token))
+            list_indent = (
+                content_indent
+                if has_list_marker
+                else active_list_indent
+                if active_list_indent is not None
+                and content_indent >= active_list_indent
+                else None
+            )
+            fence = (token[0], len(token), quote_depth, list_indent)
             masked.append("")
         elif indented_code:
             masked.append("")
@@ -1139,18 +2101,20 @@ def validate_metadata(
 
 
 def acceptance_section_indices(lines: list[str]) -> list[int]:
+    markdown_lines, _, _ = _heading_scan_lines(lines)
     return [
         index
-        for index, line in enumerate(lines)
+        for index, line in enumerate(markdown_lines)
         if (match := HEADING_RE.match(line))
         and ACCEPTANCE_TITLE_RE.fullmatch(SECTION_NUMBER_RE.sub("", match.group(1)))
     ]
 
 
 def find_acceptance_section(lines: list[str]) -> tuple[int | None, bool]:
+    markdown_lines, _, _ = _heading_scan_lines(lines)
     level_two = [
         (index, match.group(1))
-        for index, line in enumerate(lines)
+        for index, line in enumerate(markdown_lines)
         if (match := HEADING_RE.match(line))
     ]
     matches = acceptance_section_indices(lines)
@@ -1269,6 +2233,8 @@ def validate_common_structure(
     tier: str | None,
     failures: list[str],
     warnings: list[str],
+    *,
+    heading_lines: list[str] | None = None,
 ) -> None:
     semantic_lines = text.splitlines()
     acceptance_index, is_final = find_acceptance_section(visible_lines)
@@ -1314,8 +2280,10 @@ def validate_common_structure(
         # H3-H6 headings are children of the final H2 acceptance section. A
         # later H1 or H2 starts a new document section and invalidates it.
         if any(
-            re.match(r"^#{1,2}(?!#)\s+", line)
-            for line in visible_lines[acceptance_index + 1 :]
+            index > acceptance_index
+            for index, _ in rendered_section_boundaries(
+                visible_lines, scan_lines=heading_lines
+            )
         ):
             append_unique(failures, "Acceptance Criteria must be the final section")
 
@@ -1717,6 +2685,7 @@ def check_document(text: str) -> tuple[list[str], list[str]]:
     failures: list[str] = []
     warnings: list[str] = []
     visible_lines = mask_fenced_lines(text)
+    heading_lines = mask_fenced_lines(text, preserve_html_comments=True)
     visible_text = "\n".join(visible_lines)
     semantic_text = mask_inline_metadata(visible_text)
     semantic_lines = semantic_text.splitlines()
@@ -1749,7 +2718,14 @@ def check_document(text: str) -> tuple[list[str], list[str]]:
             failures.append("M/L metadata must precede the first level-two section")
 
     validate_metadata(field_lines, tier, failures)
-    validate_common_structure(semantic_text, visible_lines, tier, failures, warnings)
+    validate_common_structure(
+        semantic_text,
+        visible_lines,
+        tier,
+        failures,
+        warnings,
+        heading_lines=heading_lines,
+    )
     validate_tier(semantic_text, semantic_lines, visible_lines, field_lines, tier, failures)
 
     return failures, warnings
