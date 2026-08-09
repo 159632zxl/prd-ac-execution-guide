@@ -1082,6 +1082,64 @@ class GraphEvidenceTests(unittest.TestCase):
         errors = validate_document(document)
         self.assertTrue(any("writer" in error for error in errors))
 
+    def test_completed_contract_requires_real_writer_and_reader(self) -> None:
+        document = valid_snapshot()
+        storage = copy.deepcopy(document["nodes"][1])
+        storage.update(
+            node_id="table:milestone-only",
+            path="db/milestone-only.sql",
+            qualified_symbol="milestone_only",
+            source_anchor={
+                "path": "db/milestone-only.sql",
+                "start_line": 1,
+                "end_line": 4,
+            },
+            test_refs=[],
+        )
+        document["nodes"].append(storage)
+        validation_edge = copy.deepcopy(document["edges"][2])
+        validation_edge.update(
+            edge_id="validates:test:happy->table:milestone-only",
+            to=storage["node_id"],
+            verification_evidence=["review points at the milestone-only contract"],
+        )
+        document["edges"].append(validation_edge)
+        contract = copy.deepcopy(document["contracts"][0])
+        contract.update(
+            contract_id="milestone-only",
+            storage_node_id=storage["node_id"],
+            writers=[],
+            readers=[],
+            writer_milestone="M2",
+            reader_milestone="M2",
+            state_values=[],
+            state_semantics={},
+            state_producers={},
+            state_consumers={},
+            enum_values=[],
+            schema_enum_values=[],
+            enum_semantics={},
+            enum_producers={},
+            enum_consumers={},
+            verification_evidence=["review record labels the contract verified"],
+        )
+        document["contracts"].append(contract)
+
+        for status in ("implemented", "verified"):
+            with self.subTest(status=status):
+                contract["status"] = status
+
+                errors = validate_document(document)
+
+                self.assertTrue(
+                    any(status in error and "writer" in error for error in errors),
+                    errors,
+                )
+                self.assertTrue(
+                    any(status in error and "reader" in error for error in errors),
+                    errors,
+                )
+
     def test_coverage_refs_must_exist(self) -> None:
         document = valid_snapshot()
         document["source_coverage"][0]["target_node_refs"] = ["fn:missing"]
@@ -1367,6 +1425,74 @@ class GraphEvidenceTests(unittest.TestCase):
         document["test_chains"][0]["edge_refs"].remove("validates:test:happy->table:items")
         errors = validate_document(document)
         self.assertTrue(any("validates" in error for error in errors))
+
+    def test_chain_closes_each_declared_contract_independently(self) -> None:
+        document = valid_snapshot()
+        replacements = {
+            "fn:src/writer.py:write_item": "fn:src/log_writer.py:write_log",
+            "table:items": "table:logs",
+            "fn:src/reader.py:read_items": "fn:src/log_reader.py:read_logs",
+            "src/writer.py": "src/log_writer.py",
+            "src/reader.py": "src/log_reader.py",
+            "db/schema.sql": "db/logs.sql",
+            "write_item": "write_log",
+            "read_items": "read_logs",
+            "items-write-read": "logs-write-read",
+        }
+
+        def replace_graph_strings(value: object) -> object:
+            if isinstance(value, str):
+                for old, new in replacements.items():
+                    value = value.replace(old, new)
+                return value
+            if isinstance(value, list):
+                return [replace_graph_strings(item) for item in value]
+            if isinstance(value, dict):
+                return {
+                    replace_graph_strings(key): replace_graph_strings(item)
+                    for key, item in value.items()
+                }
+            return value
+
+        new_nodes = [
+            replace_graph_strings(copy.deepcopy(node))
+            for node in document["nodes"][:3]
+        ]
+        new_edges = [
+            replace_graph_strings(copy.deepcopy(edge))
+            for edge in document["edges"][:2]
+        ]
+        new_contract = replace_graph_strings(copy.deepcopy(document["contracts"][0]))
+        assert all(isinstance(node, dict) for node in new_nodes)
+        assert all(isinstance(edge, dict) for edge in new_edges)
+        assert isinstance(new_contract, dict)
+        new_nodes[1]["qualified_symbol"] = "logs"
+        document["nodes"].extend(new_nodes)
+        document["edges"].extend(new_edges)
+        document["contracts"].append(new_contract)
+
+        validation_edge = copy.deepcopy(document["edges"][2])
+        validation_edge.update(
+            edge_id="validates:test:happy->table:logs",
+            to="table:logs",
+            verification_evidence=["test validates the secondary storage node"],
+        )
+        document["edges"].append(validation_edge)
+        chain = document["test_chains"][0]
+        chain["node_refs"].append("table:logs")
+        chain["edge_refs"].append(validation_edge["edge_id"])
+        chain["required_roles"]["contract"].append("table:logs")
+
+        errors = validate_document(document)
+
+        self.assertTrue(
+            any("declared contract" in error and "producer" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(
+            any("declared contract" in error and "consumer" in error for error in errors),
+            errors,
+        )
 
     def test_implemented_node_requires_test_reference_or_explicit_exemption(self) -> None:
         document = valid_snapshot()

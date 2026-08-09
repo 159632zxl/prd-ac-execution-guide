@@ -177,6 +177,10 @@ traversal paths. Each test chain's `entrypoint_node_id` must have an outgoing
 All `edge_refs` endpoints must stay inside the chain's declared test/code node
 refs, and the entrypoint must reach every producer, contract, and consumer role
 through those edges.
+An `implemented` or `verified` contract requires at least one real writer and
+reader; `writer_milestone` / `reader_milestone` cannot substitute for completed
+closure. A Test Chain with multiple contract roles must close producer and
+consumer roles separately for each declared contract.
 
 Use canonical identifiers with no leading or trailing whitespace. A node, edge,
 or contract whose status is `observed`, `changed`, `implemented`, or `verified`

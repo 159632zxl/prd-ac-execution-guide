@@ -8,6 +8,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL = REPO_ROOT / "SKILL.md"
 TEMPLATE = REPO_ROOT / "references" / "prd_template.md"
+CHANGE_PACKET = REPO_ROOT / "references" / "change_packet_template.md"
 EXAMPLE = REPO_ROOT / "references" / "example_prd_filled.md"
 README = REPO_ROOT / "README.md"
 
@@ -160,6 +161,24 @@ class SkillDocumentContractTests(unittest.TestCase):
 
 
 class ReferenceDocumentContractTests(unittest.TestCase):
+    def test_graph_contract_completion_rules_align_across_guidance(self) -> None:
+        documents = {
+            "skill": SKILL.read_text(encoding="utf-8"),
+            "template": TEMPLATE.read_text(encoding="utf-8"),
+            "change_packet": CHANGE_PACKET.read_text(encoding="utf-8"),
+        }
+        required_rules = (
+            "requires at least one real writer and reader",
+            "`writer_milestone` / `reader_milestone` cannot substitute",
+            "close producer and consumer roles separately for each declared contract",
+        )
+
+        for name, text in documents.items():
+            normalized_text = " ".join(text.split())
+            for rule in required_rules:
+                with self.subTest(document=name, rule=rule):
+                    self.assertIn(rule, normalized_text)
+
     def test_template_documents_canonical_milestone_heading_shape(self) -> None:
         text = TEMPLATE.read_text(encoding="utf-8")
 

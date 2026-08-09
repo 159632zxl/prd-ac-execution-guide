@@ -123,7 +123,7 @@ The current collections must not retain `removed` objects. Observed and Change G
 
 Use canonical identifiers with no leading or trailing whitespace. A node, edge, or contract whose status is `observed`, `changed`, `implemented`, or `verified` requires non-empty `verification_evidence`. Every source-coverage edge reference must include both endpoints in `target_node_refs`.
 
-Each test chain entrypoint needs an outgoing `validates` edge in `edge_refs`. All `edge_refs` endpoints must stay inside the chain's declared test/code node refs, and the entrypoint must reach every producer, contract, and consumer role.
+Each test chain entrypoint needs an outgoing `validates` edge in `edge_refs`. All `edge_refs` endpoints must stay inside the chain's declared test/code node refs, and the entrypoint must reach every producer, contract, and consumer role. An `implemented` or `verified` contract requires at least one real writer and reader; `writer_milestone` / `reader_milestone` cannot substitute for completed closure. A Test Chain with multiple contract roles must close producer and consumer roles separately for each declared contract.
 
 ## Code Map Only Workflow
 

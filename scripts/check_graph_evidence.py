@@ -1242,6 +1242,17 @@ def _validate_contracts(
         contract_status_valid = _validate_enum(contract.get("status"), STATUSES, label, "status", errors)
         if contract_status_valid and contract.get("status") == "removed":
             errors.append(f"{label} removed objects belong only in change graph diff.removed_* references")
+        if contract_status_valid and contract.get("status") in {"implemented", "verified"}:
+            if not writers:
+                errors.append(
+                    f"{label} {contract.get('status')} contract requires a real writer; "
+                    "writer_milestone cannot substitute for completed closure"
+                )
+            if not readers:
+                errors.append(
+                    f"{label} {contract.get('status')} contract requires a real reader; "
+                    "reader_milestone cannot substitute for completed closure"
+                )
         if (
             document.get("graph_type") == "observed"
             and contract_status_valid
@@ -1726,13 +1737,24 @@ def _validate_test_chains(
                 continue
             contract_writers = set(_string_items(contract.get("writers")))
             contract_readers = set(_string_items(contract.get("readers")))
-            for producer in sorted(producer_refs & contract_writers):
+            contract_producers = producer_refs & contract_writers
+            contract_consumers = consumer_refs & contract_readers
+            contract_label = contract.get("contract_id") or storage
+            if not contract_producers:
+                errors.append(
+                    f"{label} declared contract {contract_label} has no producer role"
+                )
+            if not contract_consumers:
+                errors.append(
+                    f"{label} declared contract {contract_label} has no consumer role"
+                )
+            for producer in sorted(contract_producers):
                 if ("writes", producer, storage) not in chain_edge_pairs:
                     errors.append(
                         f"{label} omits contract writer edge from edge_refs: "
                         f"{producer} -> {storage}"
                     )
-            for consumer in sorted(consumer_refs & contract_readers):
+            for consumer in sorted(contract_consumers):
                 if ("reads", storage, consumer) not in chain_edge_pairs:
                     errors.append(
                         f"{label} omits contract reader edge from edge_refs: "
