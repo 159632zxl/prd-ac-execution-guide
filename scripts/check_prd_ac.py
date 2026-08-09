@@ -786,6 +786,16 @@ def _commonmark_html_block_start(
     return None, True
 
 
+def _quote_prefix_end(line: str, quote_depth: int) -> int | None:
+    cursor = 0
+    for _ in range(quote_depth):
+        marker = re.match(r" {0,3}>[ \t]?", line[cursor:])
+        if marker is None:
+            return None
+        cursor += marker.end()
+    return cursor
+
+
 def _strip_html_block_container(
     line: str,
     quote_depth: int,
@@ -794,13 +804,9 @@ def _strip_html_block_container(
     if quote_depth == 0 and list_content_indent is None:
         return line
 
-    cursor = 0
-    for _ in range(quote_depth):
-        marker = re.match(r" {0,3}>[ \t]?", line[cursor:])
-        if marker is None:
-            return None
-        cursor += marker.end()
-
+    cursor = _quote_prefix_end(line, quote_depth)
+    if cursor is None:
+        return None
     if list_content_indent is not None:
         while (
             cursor < len(line)
@@ -1039,6 +1045,122 @@ def _container_heading_body(line: str) -> tuple[str, int, bool, bool, int]:
     return line[cursor:], quote_depth, list_marker, remaining_indent >= 4, content_indent
 
 
+ContainerFrame = tuple[str, int]
+
+
+def _container_prefix_frames(line: str) -> tuple[tuple[ContainerFrame, ...], str]:
+    """Return explicit CommonMark container frames and the remaining body."""
+
+    value = line.expandtabs(4)
+    frames: list[ContainerFrame] = []
+    cursor = 0
+    while cursor < len(value):
+        indent_start = cursor
+        while cursor < len(value) and value[cursor] == " " and cursor - indent_start < 3:
+            cursor += 1
+        indent = cursor - indent_start
+
+        if cursor < len(value) and value[cursor] == ">":
+            frames.append(("quote", 0))
+            cursor += 1
+            if cursor < len(value) and value[cursor] == " ":
+                cursor += 1
+            continue
+
+        marker = re.match(r"(?:[-+*]|\d{1,9}[.)])", value[cursor:])
+        if marker is None:
+            cursor = indent_start
+            break
+        marker_end = cursor + marker.end()
+        marker_width = marker.end()
+        if marker_end == len(value):
+            frames.append(("list", indent + marker_width + 1))
+            cursor = marker_end
+            continue
+        if value[marker_end] != " ":
+            cursor = indent_start
+            break
+
+        padding_end = marker_end
+        while padding_end < len(value) and value[padding_end] == " ":
+            padding_end += 1
+        padding = padding_end - marker_end
+        if padding_end < len(value) and padding <= 4:
+            effective_padding = padding
+            cursor = padding_end
+        else:
+            effective_padding = 1
+            cursor = marker_end + 1 if padding_end < len(value) else padding_end
+        frames.append(("list", indent + marker_width + effective_padding))
+
+    return tuple(frames), value[cursor:]
+
+
+def _list_container_frames(
+    frames: tuple[ContainerFrame, ...],
+) -> tuple[ContainerFrame, ...] | None:
+    for index in range(len(frames) - 1, -1, -1):
+        if frames[index][0] == "list":
+            return frames[: index + 1]
+    return None
+
+
+def _strip_container_frames(
+    line: str,
+    frames: tuple[ContainerFrame, ...],
+) -> str | None:
+    value = line.expandtabs(4)
+    cursor = 0
+    for kind, width in frames:
+        if kind == "quote":
+            indent_start = cursor
+            while (
+                cursor < len(value)
+                and value[cursor] == " "
+                and cursor - indent_start < 3
+            ):
+                cursor += 1
+            if cursor >= len(value) or value[cursor] != ">":
+                return None
+            cursor += 1
+            if cursor < len(value) and value[cursor] == " ":
+                cursor += 1
+            continue
+
+        indent_end = cursor + width
+        if indent_end > len(value) or value[cursor:indent_end] != " " * width:
+            return None
+        cursor = indent_end
+    return value[cursor:]
+
+
+def _continued_list_body(origin_line: str, current_line: str) -> str | None:
+    frames, _ = _container_prefix_frames(origin_line)
+    if _list_container_frames(frames) is None:
+        return None
+    return _strip_container_frames(current_line, frames)
+
+
+def _continues_list_container(origin_line: str, current_line: str) -> bool:
+    return _continued_list_body(origin_line, current_line) is not None
+
+
+def _active_list_continuation(
+    line: str,
+    frames: tuple[ContainerFrame, ...],
+) -> tuple[tuple[ContainerFrame, ...], str] | None:
+    """Return the deepest still-open list container and its relative body."""
+
+    for index in range(len(frames) - 1, -1, -1):
+        if frames[index][0] != "list":
+            continue
+        candidate = frames[: index + 1]
+        body = _strip_container_frames(line, candidate)
+        if body is not None:
+            return candidate, body
+    return None
+
+
 def _list_marker_info(line: str) -> tuple[int, str] | None:
     prefix = REFERENCE_CONTAINER_PREFIX_RE.match(line)
     assert prefix is not None
@@ -1233,49 +1355,69 @@ def rendered_section_boundaries(
     paragraph_origins: list[int | None] = []
     paragraph_start: int | None = None
     previous_quote_depth = 0
+    active_list_frames: tuple[ContainerFrame, ...] | None = None
     for index, line in enumerate(markdown_lines):
         raw_context = _container_heading_body(line)
         body, quote_depth, has_list_marker, indented_code, content_indent = (
             raw_context
         )
-        raw_body, raw_quote_depth, raw_has_list, _, _ = raw_context
-        raw_body_start = len(line) - len(raw_body)
-        marker_info = _list_marker_info(line)
         container_line = line
-
-        if raw_quote_depth != previous_quote_depth:
-            paragraph_start = None
-        previous_quote_depth = raw_quote_depth
-
-        if paragraph_start is not None:
-            origin_context = contexts[paragraph_start]
+        raw_frames, _ = _container_prefix_frames(line)
+        had_active_list = active_list_frames is not None
+        next_active_list_frames = active_list_frames
+        rejected_marker_frames = active_list_frames
+        continuation = (
+            _active_list_continuation(line, active_list_frames)
+            if active_list_frames is not None and line.strip()
+            else None
+        )
+        if continuation is not None:
+            parent_frames, container_line = continuation
             (
-                _,
-                origin_quote_depth,
-                origin_has_list,
-                _,
-                origin_content_indent,
-            ) = origin_context
-            if origin_has_list and raw_quote_depth == origin_quote_depth:
-                marker_inside_list = bool(
-                    marker_info is None or marker_info[0] >= origin_content_indent
-                )
-                if marker_inside_list and raw_body_start >= origin_content_indent:
-                    container_line = line[origin_content_indent:]
-                    inner_context = _container_heading_body(container_line)
-                    (
-                        body,
-                        inner_quote_depth,
-                        has_list_marker,
-                        indented_code,
-                        inner_content_indent,
-                    ) = inner_context
-                    quote_depth = origin_quote_depth + inner_quote_depth
-                    content_indent = origin_content_indent + inner_content_indent
-                elif raw_has_list or re.match(
-                    r"^#{1,6}(?:[ \t]+|$)", raw_body
-                ) or _thematic_break(raw_body):
+                body,
+                inner_quote_depth,
+                has_list_marker,
+                indented_code,
+                inner_content_indent,
+            ) = _container_heading_body(container_line)
+            quote_depth = sum(kind == "quote" for kind, _ in parent_frames)
+            quote_depth += inner_quote_depth
+            content_indent = sum(
+                width for kind, width in parent_frames if kind == "list"
+            ) + inner_content_indent
+            inner_frames, _ = _container_prefix_frames(container_line)
+            nested_list_frames = _list_container_frames(inner_frames)
+            next_active_list_frames = (
+                parent_frames + nested_list_frames
+                if nested_list_frames is not None
+                else parent_frames
+            )
+            rejected_marker_frames = parent_frames
+        else:
+            current_list_frames = _list_container_frames(raw_frames)
+            if current_list_frames is not None:
+                if had_active_list:
                     paragraph_start = None
+                next_active_list_frames = current_list_frames
+                rejected_marker_frames = None
+            elif line.strip():
+                next_active_list_frames = None
+                rejected_marker_frames = None
+
+        if quote_depth != previous_quote_depth:
+            paragraph_start = None
+        previous_quote_depth = quote_depth
+
+        ordered_noninterrupting = bool(
+            paragraph_start is not None
+            and has_list_marker
+            and not _list_marker_can_interrupt_paragraph(container_line)
+        )
+        active_list_frames = (
+            rejected_marker_frames
+            if ordered_noninterrupting
+            else next_active_list_frames
+        )
 
         contexts.append(
             (body, quote_depth, has_list_marker, indented_code, content_indent)
@@ -1290,11 +1432,6 @@ def rendered_section_boundaries(
             continue
 
         atx = re.match(r"^(#{1,6})(?:[ \t]+|$)", body)
-        ordered_noninterrupting = bool(
-            paragraph_start is not None
-            and has_list_marker
-            and not _list_marker_can_interrupt_paragraph(container_line)
-        )
         if atx and not ordered_noninterrupting:
             if len(atx.group(1)) <= 2:
                 boundaries.add((index, len(atx.group(1))))
@@ -1344,7 +1481,10 @@ def rendered_section_boundaries(
         ):
             continue
         origin_context = contexts[paragraph_origin]
-        if origin_context[2] and content_indent < origin_context[4]:
+        if origin_context[2] and not _continues_list_container(
+            markdown_lines[paragraph_origin],
+            markdown_lines[index],
+        ):
             continue
         level = 1 if underline.group(1).startswith("=") else 2
         start = paragraph_origin
@@ -1534,27 +1674,22 @@ def mask_fenced_lines(
 ) -> list[str]:
     text = mask_hidden_html(text)
     masked: list[str] = []
-    fence: tuple[str, int, int, int | None] | None = None
+    fence: tuple[str, int, tuple[ContainerFrame, ...]] | None = None
     html_comment = False
     raw_html_tag: str | None = None
-    active_list_indent: int | None = None
+    active_list_frames: tuple[ContainerFrame, ...] | None = None
     for line in text.splitlines():
         if fence is not None:
-            marker_character, marker_length, fence_quote_depth, list_indent = fence
-            body, quote_depth, has_list_marker, indented_code, content_indent = (
-                _container_heading_body(line)
-            )
-            parent_closed = quote_depth < fence_quote_depth or bool(
-                list_indent is not None
-                and line.strip()
-                and (has_list_marker or content_indent < list_indent)
-            )
+            marker_character, marker_length, parent_frames = fence
+            fence_body = _strip_container_frames(line, parent_frames)
+            parent_closed = bool(line.strip() and fence_body is None)
             if not parent_closed:
+                fence_body = fence_body or ""
+                inner_frames, _ = _container_prefix_frames(fence_body)
+                body, _, _, indented_code, _ = _container_heading_body(fence_body)
                 marker = (
                     re.match(r"^(`{3,}|~{3,})(.*)$", body)
-                    if quote_depth == fence_quote_depth
-                    and not has_list_marker
-                    and not indented_code
+                    if not inner_frames and not indented_code
                     else None
                 )
                 if marker:
@@ -1568,8 +1703,8 @@ def mask_fenced_lines(
                 masked.append("")
                 continue
             fence = None
-            if list_indent is not None:
-                active_list_indent = None
+            if _list_container_frames(parent_frames) is not None:
+                active_list_frames = None
 
         if raw_html_tag is not None:
             if raw_html_tag != "plaintext" and re.search(
@@ -1603,21 +1738,36 @@ def mask_fenced_lines(
                 html_comment = True
                 cursor = comment_start + 4
             visible_line = "".join(visible_parts)
-        body, quote_depth, has_list_marker, container_indented, content_indent = (
-            _container_heading_body(visible_line)
+        raw_frames, _ = _container_prefix_frames(visible_line)
+        continued_body = (
+            _strip_container_frames(visible_line, active_list_frames)
+            if active_list_frames is not None and visible_line.strip()
+            else None
         )
-        indented_code = visible_line.startswith("\t") or visible_line.startswith("    ")
-        if has_list_marker:
-            active_list_indent = content_indent
-        elif _standalone_list_marker(body):
-            marker_text = body.strip()
-            active_list_indent = content_indent + len(marker_text) + 1
-        elif (
-            active_list_indent is not None
-            and visible_line.strip()
-            and content_indent < active_list_indent
-        ):
-            active_list_indent = None
+        if continued_body is not None:
+            inner_frames, _ = _container_prefix_frames(continued_body)
+            line_frames = active_list_frames + inner_frames
+            body, _, _, container_indented, _ = _container_heading_body(
+                continued_body
+            )
+            if _list_container_frames(inner_frames) is not None:
+                active_list_frames = _list_container_frames(line_frames)
+        else:
+            line_frames = raw_frames
+            body, _, _, container_indented, _ = _container_heading_body(visible_line)
+            current_list_frames = _list_container_frames(raw_frames)
+            if current_list_frames is not None:
+                active_list_frames = current_list_frames
+            elif visible_line.strip():
+                active_list_frames = None
+        mask_as_indented_code = bool(
+            container_indented
+            and (
+                continued_body is not None
+                or visible_line.startswith("\t")
+                or visible_line.startswith("    ")
+            )
+        )
 
         marker = (
             None
@@ -1633,17 +1783,9 @@ def mask_fenced_lines(
         )
         if marker:
             token = marker.group(1)
-            list_indent = (
-                content_indent
-                if has_list_marker
-                else active_list_indent
-                if active_list_indent is not None
-                and content_indent >= active_list_indent
-                else None
-            )
-            fence = (token[0], len(token), quote_depth, list_indent)
+            fence = (token[0], len(token), line_frames)
             masked.append("")
-        elif indented_code:
+        elif mask_as_indented_code:
             masked.append("")
         elif raw_opener:
             tag, opener_start, opener_end = raw_opener

@@ -1313,6 +1313,98 @@ Blocking ambiguities: none
 
                 self.assertEqual(failures, [])
 
+    def test_list_continuation_headings_survive_the_full_mask_pipeline(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "- Title\n    ---",
+            "1. Title\n    ===",
+            "- Title\n    ## visible",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(
+                    valid_minimal_prd() + "\n\n" + appendix
+                )
+
+                self.assertIn(
+                    "Acceptance Criteria must be the final section",
+                    failures,
+                )
+
+    def test_list_relative_indented_code_remains_non_heading(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "- Title\n      ## not a heading",
+            "> - Title\n>       ## not a heading",
+            "    ## root indented code",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(
+                    valid_minimal_prd() + "\n\n" + appendix
+                )
+
+                self.assertEqual(failures, [])
+
+    def test_list_relative_fence_masks_its_heading_literals(self) -> None:
+        from scripts.check_prd_ac import (
+            mask_fenced_lines,
+            rendered_section_boundaries,
+        )
+
+        source = "- item\n    ```\n  ## hidden\n    ```\n## visible"
+        masked = mask_fenced_lines(source, preserve_html_comments=True)
+
+        self.assertEqual(rendered_section_boundaries(masked), [(4, 2)])
+
+    def test_container_reordering_does_not_form_a_setext_heading(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        appendix = "> - paragraph\n  > ---"
+        failures, _ = check_document(valid_minimal_prd() + "\n\n" + appendix)
+
+        self.assertEqual(failures, [])
+
+    def test_blockquote_nested_in_list_survives_the_full_mask_pipeline(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "- > Title\n  > ---",
+            "- > Title\n    > ---",
+        )
+        for appendix in variants:
+            with self.subTest(appendix=appendix):
+                failures, _ = check_document(
+                    valid_minimal_prd() + "\n\n" + appendix
+                )
+
+                self.assertIn(
+                    "Acceptance Criteria must be the final section",
+                    failures,
+                )
+
+    def test_list_context_survives_blank_and_masked_lines(self) -> None:
+        from scripts.check_prd_ac import (
+            mask_fenced_lines,
+            rendered_section_boundaries,
+        )
+
+        cases = (
+            ("-     T\n    ## H", [(1, 2)]),
+            ("- T\n\n    ## H", [(2, 2)]),
+            (
+                "-   item\n        ~~~\n    ## H\n        ~~~\n## root",
+                [(2, 2), (4, 2)],
+            ),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                masked = mask_fenced_lines(source, preserve_html_comments=True)
+
+                self.assertEqual(rendered_section_boundaries(masked), expected)
+
     def test_heading_after_container_fence_is_not_masked(self) -> None:
         from scripts.check_prd_ac import check_document
 
@@ -1552,6 +1644,7 @@ Blocking ambiguities: none
             (["### child", "2. ## heading"], [(1, 2)]),
             (["- paragraph", "2. ## heading"], [(1, 2)]),
             (["- paragraph", "    ## heading"], [(1, 2)]),
+            (["paragraph", "2. text", "    ## not a heading"], []),
         )
         for lines, expected in cases:
             with self.subTest(lines=lines):
