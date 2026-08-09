@@ -596,6 +596,49 @@ Blocking ambiguities: none
         )
         self.assertIn("Missing goal section", ignored_close_failures)
 
+    def test_unterminated_raw_html_after_visible_prefix_cannot_satisfy_structure(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_minimal_prd()
+        for tag in (
+            "script",
+            "style",
+            "pre",
+            "textarea",
+            "template",
+            "xmp",
+            "listing",
+            "iframe",
+            "noembed",
+            "noframes",
+            "title",
+            "plaintext",
+        ):
+            with self.subTest(tag=tag):
+                failures, _ = check_document(
+                    f'visible prefix <{tag} data-test="hidden">\n{document}'
+                )
+
+                self.assertIn("Missing goal section", failures)
+
+    def test_literal_raw_html_tag_names_remain_visible_text(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_minimal_prd()
+        prefixes = (
+            "Literal `<plaintext>` tag.",
+            "Literal ``<plaintext>`` tag.",
+            r"Literal \<plaintext> tag.",
+            '<span title="<plaintext>">Literal tag name.</span>',
+            "    <plaintext>",
+            "```<plaintext>\nignored fenced content\n```",
+        )
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix):
+                failures, _ = check_document(f"{prefix}\n{document}")
+
+                self.assertEqual(failures, [])
+
     def test_hidden_html_cannot_satisfy_prd_structure(self) -> None:
         from scripts.check_prd_ac import check_document
 

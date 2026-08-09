@@ -45,6 +45,7 @@ RAW_TEXT_HTML_TAGS = (
     "title",
 )
 RAW_TEXT_HTML_TAG_PATTERN = "|".join(RAW_TEXT_HTML_TAGS)
+RAW_TEXT_HTML_TAG_SET = frozenset((*RAW_TEXT_HTML_TAGS, "plaintext"))
 NON_SEMANTIC_HTML_RE = re.compile(
     rf"<({RAW_TEXT_HTML_TAG_PATTERN})\b[^>]*>.*?</\1\s*>",
     re.IGNORECASE | re.DOTALL,
@@ -143,6 +144,77 @@ def decode_css_escapes(value: str) -> str:
     return CSS_ESCAPE_RE.sub(replace, value)
 
 
+def _html_tag_end(value: str, start: int) -> int | None:
+    quote: str | None = None
+    cursor = start
+    while cursor < len(value):
+        character = value[cursor]
+        if quote:
+            if character == quote:
+                quote = None
+        elif character in "\"'":
+            quote = character
+        elif character == ">":
+            return cursor
+        cursor += 1
+    return None
+
+
+def _raw_text_html_opener(value: str) -> tuple[str, int, int] | None:
+    """Return an actual raw-text start tag outside escapes and code spans."""
+
+    cursor = 0
+    while cursor < len(value):
+        if value[cursor] == "`":
+            run_end = cursor + 1
+            while run_end < len(value) and value[run_end] == "`":
+                run_end += 1
+            delimiter_length = run_end - cursor
+            search = run_end
+            while search < len(value):
+                if value[search] != "`":
+                    search += 1
+                    continue
+                close_end = search + 1
+                while close_end < len(value) and value[close_end] == "`":
+                    close_end += 1
+                if close_end - search == delimiter_length:
+                    cursor = close_end
+                    break
+                search = close_end
+            else:
+                cursor = run_end
+            continue
+
+        if value[cursor] != "<":
+            cursor += 1
+            continue
+        backslashes = 0
+        backtrack = cursor - 1
+        while backtrack >= 0 and value[backtrack] == "\\":
+            backslashes += 1
+            backtrack -= 1
+        if backslashes % 2:
+            cursor += 1
+            continue
+
+        match = HTML_TAG_NAME_RE.match(value, cursor)
+        if not match:
+            cursor += 1
+            continue
+        end = _html_tag_end(value, match.end())
+        if end is None:
+            return None
+        tag_name = match.group("tag").casefold()
+        if (
+            not match.group("closing")
+            and tag_name in RAW_TEXT_HTML_TAG_SET
+        ):
+            return tag_name, cursor, end
+        cursor = end + 1
+    return None
+
+
 HEADER_ALIASES = {
     "ac": {"ac", "acid", "验收编号"},
     "category": {"category", "类别"},
@@ -214,21 +286,6 @@ def mask_hidden_html(text: str) -> str:
 
     def blank(value: str) -> str:
         return "".join("\n" if character == "\n" else "" for character in value)
-
-    def tag_end(start: int) -> int | None:
-        quote: str | None = None
-        cursor = start
-        while cursor < len(text):
-            character = text[cursor]
-            if quote:
-                if character == quote:
-                    quote = None
-            elif character in "\"'":
-                quote = character
-            elif character == ">":
-                return cursor
-            cursor += 1
-        return None
 
     def attributes(body: str, name_end: int) -> dict[str, str | None]:
         parsed: dict[str, str | None] = {}
@@ -310,7 +367,7 @@ def mask_hidden_html(text: str) -> str:
             cursor += 1
             continue
 
-        end = tag_end(cursor + 1)
+        end = _html_tag_end(text, cursor + 1)
         if end is None:
             # A malformed hidden opener has no safe visible interpretation.
             tail = text[cursor:]
@@ -433,25 +490,36 @@ def mask_fenced_lines(text: str) -> list[str]:
             cursor = comment_start + 4
 
         visible_line = "".join(visible_parts)
-        raw_opener = re.match(
-            rf"^ {{0,3}}<({RAW_TEXT_HTML_TAG_PATTERN}|plaintext)(?=[\s>/])",
-            visible_line,
-            re.IGNORECASE,
-        )
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", visible_line)
-        if raw_opener:
-            tag = raw_opener.group(1).lower()
-            if tag == "plaintext" or not re.search(
-                rf"</\s*{re.escape(tag)}\s*>", visible_line, re.IGNORECASE
-            ):
-                raw_html_tag = tag
-            masked.append("")
-        elif marker:
+        indented_code = visible_line.startswith("\t") or visible_line.startswith("    ")
+        raw_opener = (
+            None
+            if marker or indented_code
+            else _raw_text_html_opener(visible_line)
+        )
+        if marker:
             token = marker.group(1)
             fence = (token[0], len(token))
             masked.append("")
-        elif visible_line.startswith("\t") or visible_line.startswith("    "):
+        elif indented_code:
             masked.append("")
+        elif raw_opener:
+            tag, opener_start, opener_end = raw_opener
+            closing = None
+            if tag != "plaintext":
+                closing = re.search(
+                    rf"</\s*{re.escape(tag)}\s*>",
+                    visible_line[opener_end + 1 :],
+                    re.IGNORECASE,
+                )
+            if closing is None:
+                raw_html_tag = tag
+                masked.append(visible_line[:opener_start])
+            else:
+                closing_end = opener_end + 1 + closing.end()
+                masked.append(
+                    visible_line[:opener_start] + visible_line[closing_end:]
+                )
         else:
             masked.append(visible_line)
     return masked

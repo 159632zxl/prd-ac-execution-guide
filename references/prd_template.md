@@ -2,7 +2,7 @@
 
 <!-- L-tier full template. Trim sections for S/M documents according to Document Tiers in SKILL.md. -->
 
-# PRD · <Title>
+# PRD · <PRD Title>
 
 **<Codename> v1.0 · <YYYY-MM-DD> · 供 Codex / Claude 执行**
 
