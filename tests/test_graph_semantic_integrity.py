@@ -173,14 +173,7 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
         self.assertIn("strategy_status", dependencies.get("strategy_name", []))
 
         parameter_schema = contract["properties"]["strategy_parameters"]
-        variants = parameter_schema.get("oneOf")
-        self.assertIsInstance(variants, list)
-        assert isinstance(variants, list)
-        by_type = {variant.get("type"): variant for variant in variants}
-        self.assertEqual(by_type["string"].get("minLength"), 1)
-        self.assertEqual(by_type["array"].get("minItems"), 1)
-        self.assertEqual(by_type["object"].get("minProperties"), 1)
-        self.assertIn("number", by_type)
+        self.assertEqual(parameter_schema, {"$ref": "#/$defs/strategyParameters"})
 
         self.assertTrue(
             any(
@@ -317,6 +310,38 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
                 role,
             )
         self.assertTrue(schema["$defs"]["diff"]["properties"]["unresolved"].get("uniqueItems"))
+
+    def test_schema_recursively_constrains_strategy_parameters(self) -> None:
+        schema_path = Path(__file__).parents[1] / "references" / "graph-evidence.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        parameter_schema = schema["$defs"]["contract"]["properties"]["strategy_parameters"]
+        self.assertEqual(parameter_schema, {"$ref": "#/$defs/strategyParameters"})
+
+        root_variants = schema["$defs"]["strategyParameters"]["oneOf"]
+        self.assertEqual(
+            {variant.get("$ref") for variant in root_variants if "$ref" in variant},
+            {"#/$defs/strategyParameterObject", "#/$defs/strategyParameterArray"},
+        )
+        self.assertEqual(
+            {variant.get("type") for variant in root_variants if "type" in variant},
+            {"string", "number"},
+        )
+
+        nested_variants = schema["$defs"]["strategyParameterValue"]["oneOf"]
+        self.assertIn({"type": "boolean"}, nested_variants)
+        parameter_object = schema["$defs"]["strategyParameterObject"]
+        self.assertEqual(parameter_object["minProperties"], 1)
+        self.assertEqual(
+            parameter_object["additionalProperties"],
+            {"$ref": "#/$defs/strategyParameterValue"},
+        )
+        parameter_array = schema["$defs"]["strategyParameterArray"]
+        self.assertEqual(parameter_array["minItems"], 1)
+        self.assertEqual(
+            parameter_array["items"],
+            {"$ref": "#/$defs/strategyParameterValue"},
+        )
 
     def test_provider_requires_declared_capabilities_and_limitations(self) -> None:
         for field in ("capabilities", "limitations"):
@@ -569,6 +594,20 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
             "\x08 ok",
             "\x1b[31m",
             "<command>",
+            "ＴＯＤＯ",
+            "ＴＢＤ",
+            "Ｎ／Ａ",
+            "ＮＯＮＥ",
+            "ok",
+            "PASS",
+            "done",
+            "works",
+            "verified",
+            "success",
+            "正常",
+            "通过",
+            "完成",
+            "已验证",
         )
         for value in invalid_values:
             with self.subTest(value=value):
@@ -632,6 +671,34 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
             any("independent_verification" in error and "distinct" in error for error in errors),
             errors,
         )
+
+    def test_verified_review_rejects_unicode_equivalent_independent_evidence(self) -> None:
+        equivalent_pairs = (
+            ("graph query", "Ｇｒａｐｈ　ｑｕｅｒｙ"),
+            ("caf\u00e9 query", "cafe\u0301 query"),
+            ("graph query", "graph\u00a0query"),
+        )
+        for evidence, independent_verification in equivalent_pairs:
+            with self.subTest(independent_verification=independent_verification):
+                document = valid_snapshot()
+                document["review_findings"] = [
+                    {
+                        "finding_id": "FIND-UNICODE",
+                        "status": "verified",
+                        "evidence": [evidence],
+                        "independent_verification": [independent_verification],
+                    }
+                ]
+
+                errors = validate_document(document)
+
+                self.assertTrue(
+                    any(
+                        "independent_verification" in error and "distinct" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
 
     def test_incomplete_audit_cannot_support_a_rejected_absence_finding(self) -> None:
         document = valid_snapshot()
@@ -1102,6 +1169,69 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
         contract["strategy_parameters"] = deep_parameters
         deep_errors = validate_document(document)
         self.assertEqual(deep_errors, [])
+
+    def test_ready_strategy_parameters_reject_nested_empty_values(self) -> None:
+        invalid_parameters = (
+            {"rate": None},
+            {"rate": ""},
+            {"rate": []},
+            {"rate": {}},
+            {"rate": {"value": None}},
+            [None],
+            [[]],
+            [{"rate": ""}],
+        )
+        for parameters in invalid_parameters:
+            with self.subTest(parameters=parameters):
+                document = valid_snapshot()
+                document["contracts"][0].update(
+                    strategy_name="exponential",
+                    strategy_status="ready",
+                    strategy_parameters=parameters,
+                    strategy_trigger="item is reviewed",
+                    strategy_target="items.next_review",
+                    strategy_entrypoint="src/writer.py:write_item",
+                )
+
+                errors = validate_document(document)
+
+                self.assertTrue(any("strategy_parameters" in error for error in errors), errors)
+
+    def test_strategy_parameters_reject_boundary_whitespace_recursively(self) -> None:
+        invalid_parameters = (
+            " padded ",
+            {"rate": " 0.9 "},
+            {" rate ": 0.9},
+            [{"nested": "value "}],
+        )
+        for parameters in invalid_parameters:
+            with self.subTest(parameters=parameters):
+                document = valid_snapshot()
+                document["contracts"][0].update(
+                    strategy_name="exponential",
+                    strategy_status="ready",
+                    strategy_parameters=parameters,
+                    strategy_trigger="item is reviewed",
+                    strategy_target="items.next_review",
+                    strategy_entrypoint="src/writer.py:write_item",
+                )
+
+                errors = validate_document(document)
+
+                self.assertTrue(any("strategy_parameters" in error for error in errors), errors)
+
+    def test_nested_boolean_strategy_parameter_is_concrete(self) -> None:
+        document = valid_snapshot()
+        document["contracts"][0].update(
+            strategy_name="exponential",
+            strategy_status="ready",
+            strategy_parameters={"jitter": False, "limits": [0, 3]},
+            strategy_trigger="item is reviewed",
+            strategy_target="items.next_review",
+            strategy_entrypoint="src/writer.py:write_item",
+        )
+
+        self.assertEqual(validate_document(document), [])
 
     def test_test_chain_entrypoint_must_connect_to_a_validation_edge(self) -> None:
         document = valid_snapshot()

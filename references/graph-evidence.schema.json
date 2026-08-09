@@ -82,6 +82,34 @@
       "minLength": 1,
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
     },
+    "strategyParameterObject": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"$ref": "#/$defs/strategyParameterValue"}
+    },
+    "strategyParameterArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/strategyParameterValue"}
+    },
+    "strategyParameterValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/strategyParameterObject"},
+        {"$ref": "#/$defs/strategyParameterArray"},
+        {"type": "string", "minLength": 1, "pattern": "^\\S(?:[\\s\\S]*\\S)?$"},
+        {"type": "number"},
+        {"type": "boolean"}
+      ]
+    },
+    "strategyParameters": {
+      "oneOf": [
+        {"$ref": "#/$defs/strategyParameterObject"},
+        {"$ref": "#/$defs/strategyParameterArray"},
+        {"type": "string", "minLength": 1, "pattern": "^\\S(?:[\\s\\S]*\\S)?$"},
+        {"type": "number"}
+      ]
+    },
     "provider": {
       "type": "object",
       "additionalProperties": false,
@@ -399,14 +427,7 @@
         "duplicate_query_result": {"$ref": "#/$defs/evidence"},
         "strategy_name": {"type": "string", "minLength": 1},
         "strategy_status": {"enum": ["ready", "blocked"]},
-        "strategy_parameters": {
-          "oneOf": [
-            {"type": "object", "minProperties": 1},
-            {"type": "array", "minItems": 1},
-            {"type": "string", "minLength": 1},
-            {"type": "number"}
-          ]
-        },
+        "strategy_parameters": {"$ref": "#/$defs/strategyParameters"},
         "strategy_trigger": {"type": "string", "minLength": 1},
         "strategy_target": {"type": "string", "minLength": 1},
         "strategy_entrypoint": {"type": "string", "minLength": 1},

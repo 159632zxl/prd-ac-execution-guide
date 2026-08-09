@@ -15,9 +15,17 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.check_prd_ac import EXPLICIT_PLACEHOLDER_RE, contains_disallowed_control
+    from scripts.check_prd_ac import (
+        contains_disallowed_control,
+        contains_explicit_placeholder,
+        normalize_validation_text,
+    )
 except ModuleNotFoundError:  # direct execution from the scripts directory
-    from check_prd_ac import EXPLICIT_PLACEHOLDER_RE, contains_disallowed_control
+    from check_prd_ac import (
+        contains_disallowed_control,
+        contains_explicit_placeholder,
+        normalize_validation_text,
+    )
 
 
 STATUSES = {
@@ -53,6 +61,14 @@ COVERAGE_SCOPES = {"local", "module", "repository", "system"}
 EDGE_KINDS = {"calls", "imports", "reads", "writes", "publishes", "subscribes", "validates", "routes", "returns", "dynamic"}
 ARTIFACT_TYPES = {"graph_snapshot", "graph_diff"}
 NON_EVIDENCE_RE = re.compile(r"^(?:[.\-?]+|n/?a|none|null|nil|无|没有|见上|同上)$", re.IGNORECASE)
+BARE_ATTESTATION_RE = re.compile(
+    r"^(?:"
+    r"ok|pass(?:ed)?|done|works?|working|verified|success(?:ful)?|succeeded|"
+    r"confirmed|checked|tested|valid|正常|通过|完成|已完成|已验证|已确认|已检查|"
+    r"成功|有效|可用|没问题|无问题"
+    r")[.!?。！？]*$",
+    re.IGNORECASE,
+)
 NEGATED_EVIDENCE_RE = re.compile(
     r"^(?:"
     # Evidence fields must contain an observation, not an assertion that an
@@ -167,9 +183,9 @@ def _is_nonempty_string(value: Any) -> bool:
 def _is_concrete_string(value: Any) -> bool:
     if not _is_nonempty_string(value):
         return False
-    text = value.strip()
+    text = normalize_validation_text(value.strip())
     return not (
-        EXPLICIT_PLACEHOLDER_RE.search(text)
+        contains_explicit_placeholder(text)
         or contains_disallowed_control(text)
     )
 
@@ -177,7 +193,7 @@ def _is_concrete_string(value: Any) -> bool:
 def _is_meaningful_string(value: Any) -> bool:
     if not _is_concrete_string(value):
         return False
-    normalized = value.strip()
+    normalized = normalize_validation_text(value.strip())
     return not (
         NON_EVIDENCE_RE.fullmatch(normalized)
         or NEGATED_EVIDENCE_RE.fullmatch(normalized)
@@ -265,7 +281,7 @@ def _contains_placeholder_string(value: Any) -> bool:
     return any(
         isinstance(item, str)
         and (
-            EXPLICIT_PLACEHOLDER_RE.search(item)
+            contains_explicit_placeholder(item)
             or contains_disallowed_control(item)
         )
         for item in _iter_nested_values(value)
@@ -273,13 +289,38 @@ def _contains_placeholder_string(value: Any) -> bool:
 
 
 def _has_concrete_strategy_parameters(value: Any) -> bool:
-    if isinstance(value, str):
-        return _is_meaningful_string(value)
-    if type(value) in (int, float):
-        return _is_number(value)
-    if isinstance(value, (dict, list)):
-        return bool(value)
-    return False
+    stack = [value]
+    visited: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if isinstance(current, str):
+            if current != current.strip() or not _is_meaningful_string(current):
+                return False
+        elif isinstance(current, bool):
+            continue
+        elif type(current) in (int, float):
+            if not _is_number(current):
+                return False
+        elif isinstance(current, dict):
+            if not current or id(current) in visited:
+                return False
+            visited.add(id(current))
+            if any(
+                not isinstance(key, str)
+                or key != key.strip()
+                or not _is_meaningful_string(key)
+                for key in current
+            ):
+                return False
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            if not current or id(current) in visited:
+                return False
+            visited.add(id(current))
+            stack.extend(current)
+        else:
+            return False
+    return True
 
 
 def _is_repository_relative_path(value: Any, *, allow_dot: bool = False) -> bool:
@@ -410,15 +451,18 @@ def _validate_concrete_string_list(value: Any, label: str, errors: list[str]) ->
 def _validate_evidence(value: Any, label: str, errors: list[str]) -> list[str]:
     items = _validate_string_list(value, label, errors)
     for index, item in enumerate(items):
-        normalized = item.strip()
-        if item != normalized:
+        stripped = item.strip()
+        normalized = normalize_validation_text(stripped)
+        if item != stripped:
             errors.append(f"{label}[{index}] must not contain leading or trailing whitespace")
-        if EXPLICIT_PLACEHOLDER_RE.search(normalized):
+        if contains_explicit_placeholder(normalized):
             errors.append(f"{label}[{index}] contains a placeholder")
         elif contains_disallowed_control(normalized):
             errors.append(f"{label}[{index}] evidence contains a disallowed control character")
         elif len(normalized) < 2 or NON_EVIDENCE_RE.fullmatch(normalized):
             errors.append(f"{label}[{index}] is not usable evidence")
+        elif BARE_ATTESTATION_RE.fullmatch(normalized):
+            errors.append(f"{label}[{index}] is only a conclusion, not evidence")
         elif (
             NEGATED_EVIDENCE_RE.fullmatch(normalized)
             or NEGATED_EVIDENCE_EXTENDED_RE.fullmatch(normalized)
@@ -891,8 +935,14 @@ def _validate_reviews(document: dict[str, Any], errors: list[str]) -> None:
             if not independent_items:
                 errors.append(f"{label} verified requires independent_verification")
             else:
-                evidence_keys = {item.strip().casefold() for item in evidence_items}
-                independent_keys = {item.strip().casefold() for item in independent_items}
+                evidence_keys = {
+                    normalize_validation_text(item).strip().casefold()
+                    for item in evidence_items
+                }
+                independent_keys = {
+                    normalize_validation_text(item).strip().casefold()
+                    for item in independent_items
+                }
                 overlap = sorted(evidence_keys & independent_keys)
                 if overlap:
                     errors.append(
