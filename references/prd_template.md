@@ -191,6 +191,11 @@ must include both endpoints in `target_node_refs`.
 
 先按 `^## ` 标题边界生成完整章节清单，再在 `coverage.md` 中逐项映射到 EARS、节点/边和 AC。每项只能是 `covered`、`deferred` 或 `not-applicable`；`covered` 必须有 requirement/AC 引用，后两者必须有显式理由。
 
+`coverage.status=complete` means the source-section inventory is complete; it
+does not mean every source section is fully analyzed. A `deferred` row may
+remain when it records `explicit_reason` and `owner_task`; silent omission is
+still FAIL.
+
 ### Reader/Writer and Runtime Visibility
 
 每张表、字段、缓存或事件必须记录 writer、reader、状态消费者和枚举值。验收必须同时包含：

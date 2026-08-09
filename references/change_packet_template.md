@@ -99,6 +99,11 @@ The normalized `source_coverage` rows also carry `requirement_refs`, `ears_refs`
 
 Allowed status values: `covered`, `deferred`, `not-applicable`. `deferred` and `not-applicable` require a reason and an owning milestone or approval.
 
+`coverage.status=complete` means the source-section inventory is complete; it
+does not mean every source section is fully analyzed. A `deferred` row may
+remain when it records `explicit_reason` and `owner_task`; silent omission is
+still FAIL.
+
 ## Test Chain Gate / test-map.md
 
 Tests are part of the code network. Record one row for every minimum vertical

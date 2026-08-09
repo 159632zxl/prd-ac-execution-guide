@@ -161,6 +161,25 @@ class SkillDocumentContractTests(unittest.TestCase):
 
 
 class ReferenceDocumentContractTests(unittest.TestCase):
+    def test_complete_coverage_inventory_semantics_align_across_guidance(self) -> None:
+        documents = {
+            "skill": SKILL.read_text(encoding="utf-8"),
+            "template": TEMPLATE.read_text(encoding="utf-8"),
+            "change_packet": CHANGE_PACKET.read_text(encoding="utf-8"),
+        }
+        required_rules = (
+            "`coverage.status=complete` means the source-section inventory is complete",
+            "does not mean every source section is fully analyzed",
+            "A `deferred` row may remain",
+            "records `explicit_reason` and `owner_task`",
+        )
+
+        for name, text in documents.items():
+            normalized_text = " ".join(text.split())
+            for rule in required_rules:
+                with self.subTest(document=name, rule=rule):
+                    self.assertIn(rule, normalized_text)
+
     def test_graph_contract_completion_rules_align_across_guidance(self) -> None:
         documents = {
             "skill": SKILL.read_text(encoding="utf-8"),

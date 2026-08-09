@@ -103,7 +103,7 @@ changes/<change-id>/
   tasks.md  test-map.md  verification.md  handoff.md
 ```
 
-Read the manifest, current Stage Packet, and only its referenced context. Split source material at `^## ` and map every section in `coverage.md`; silent omission is FAIL.
+Read the manifest, current Stage Packet, and only its referenced context. Split source material at `^## ` and map every section in `coverage.md`; silent omission is FAIL. `coverage.status=complete` means the source-section inventory is complete; it does not mean every source section is fully analyzed. A `deferred` row may remain when it records `explicit_reason` and `owner_task`; silent omission is still FAIL.
 
 ## Graph Evidence and Code Network
 

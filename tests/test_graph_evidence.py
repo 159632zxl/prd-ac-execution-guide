@@ -631,6 +631,23 @@ class GraphEvidenceTests(unittest.TestCase):
         errors = validate_document(document)
         self.assertTrue(any("source_anchor" in error for error in errors))
 
+    def test_complete_coverage_inventory_allows_owned_deferred_section(self) -> None:
+        document = valid_snapshot()
+        section = document["source_coverage"][0]
+        section.update(
+            status="deferred",
+            requirement_refs=[],
+            ears_refs=[],
+            target_node_refs=[],
+            target_edge_refs=[],
+            ac_refs=[],
+            explicit_reason="runtime adapter analysis is scheduled for the next task",
+            owner_task="M2-T01",
+        )
+
+        self.assertEqual(document["coverage"]["status"], "complete")
+        self.assertEqual(validate_document(document), [])
+
     def test_non_finite_strategy_parameters_are_rejected(self) -> None:
         for value in (float("nan"), float("inf"), float("-inf")):
             document = valid_snapshot()
