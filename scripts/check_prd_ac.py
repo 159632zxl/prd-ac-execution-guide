@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import string
 import sys
 import unicodedata
 from dataclasses import dataclass
@@ -202,10 +203,18 @@ def _raw_text_html_opener(value: str) -> tuple[str, int, int] | None:
         if not match:
             cursor += 1
             continue
+        tag_name = match.group("tag").casefold()
         end = _html_tag_end(value, match.end())
         if end is None:
+            tail = value[match.end() :]
+            if (
+                not match.group("closing")
+                and tag_name in RAW_TEXT_HTML_TAG_SET
+                and re.fullmatch(r" {0,3}", value[:cursor])
+                and (not tail or tail[0].isspace())
+            ):
+                return tag_name, cursor, len(value) - 1
             return None
-        tag_name = match.group("tag").casefold()
         if (
             not match.group("closing")
             and tag_name in RAW_TEXT_HTML_TAG_SET
@@ -267,6 +276,12 @@ FLOW_TERMS = (
     "Implementation",
     "Acceptance",
 )
+REFERENCE_CONTAINER_PREFIX_RE = re.compile(
+    r"^ {0,3}(?:(?:>[ \t]*)|(?:[-+*][ \t]+)|(?:\d{1,9}[.)][ \t]+))*"
+)
+REFERENCE_TITLE_RE = re.compile(
+    r'(?:"(?:\\.|[^"])*"|\'(?:\\.|[^\'])*\'|\((?:\\.|[^)])*\))'
+)
 
 
 @dataclass(frozen=True)
@@ -279,6 +294,171 @@ class TableRow:
 class MarkdownTable:
     headers: list[str]
     rows: list[TableRow]
+
+
+@dataclass(frozen=True)
+class ReferenceDefinitionSpan:
+    start: int
+    end: int
+    label: str
+    quote_depth: int
+    title_may_follow: bool
+
+
+def _reference_label_end(value: str) -> int | None:
+    escaped = False
+    for index, character in enumerate(value):
+        if character == "\\":
+            escaped = not escaped
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if character == "[":
+            return -1
+        if character == "]":
+            if index + 1 < len(value) and value[index + 1] == ":":
+                return index
+            return -1
+    return None
+
+
+def _parse_reference_destination(value: str) -> tuple[bool, bool]:
+    """Return whether a destination is valid and may take a title line."""
+
+    value = value.strip()
+    if not value:
+        return False, False
+
+    destination_end = 0
+    if value.startswith("<"):
+        index = 1
+        while index < len(value):
+            character = value[index]
+            if (
+                character == "\\"
+                and index + 1 < len(value)
+                and value[index + 1] in string.punctuation
+            ):
+                index += 2
+                continue
+            if character == "<":
+                return False, False
+            if character == ">":
+                destination_end = index + 1
+                break
+            index += 1
+        if not destination_end:
+            return False, False
+    else:
+        parenthesis_depth = 0
+        index = 0
+        while index < len(value):
+            character = value[index]
+            if (
+                character == "\\"
+                and index + 1 < len(value)
+                and value[index + 1] in string.punctuation
+            ):
+                destination_end = index + 2
+                index += 2
+                continue
+            if character.isspace():
+                break
+            if character == "(":
+                parenthesis_depth += 1
+            elif character == ")":
+                if parenthesis_depth == 0:
+                    return False, False
+                parenthesis_depth -= 1
+            destination_end = index + 1
+            index += 1
+        if not destination_end or parenthesis_depth:
+            return False, False
+
+    remainder = value[destination_end:].strip()
+    if not remainder:
+        return True, True
+    return bool(REFERENCE_TITLE_RE.fullmatch(remainder)), False
+
+
+def _reference_continuation_body(line: str, *, quote_depth: int) -> str | None:
+    container = REFERENCE_CONTAINER_PREFIX_RE.match(line)
+    assert container is not None
+    prefix = container.group(0)
+    if re.search(r"(?:[-+*]|\d{1,9}[.)])[ \t]+", prefix):
+        return None
+    if prefix.count(">") > quote_depth:
+        return None
+    return line[container.end() :]
+
+
+def reference_definition_spans(
+    lines: list[str],
+) -> list[ReferenceDefinitionSpan]:
+    """Return non-rendering Markdown reference-definition line spans."""
+
+    spans: list[ReferenceDefinitionSpan] = []
+    index = 0
+    while index < len(lines):
+        prefix = REFERENCE_CONTAINER_PREFIX_RE.match(lines[index])
+        assert prefix is not None
+        first = lines[index][prefix.end() :]
+        if not first.startswith("[") or first.startswith("[^"):
+            index += 1
+            continue
+        quote_depth = prefix.group(0).count(">")
+
+        label_parts: list[str] = []
+        label_line = first[1:]
+        end = index
+        while True:
+            label_end = _reference_label_end(label_line)
+            if label_end == -1:
+                break
+            if label_end is not None:
+                label = "\n".join([*label_parts, label_line[:label_end]])
+                tail = label_line[label_end + 2 :]
+                definition_end = end
+                destination_valid, title_may_follow = _parse_reference_destination(tail)
+                if not destination_valid:
+                    if tail.strip() or end + 1 >= len(lines):
+                        break
+                    destination = _reference_continuation_body(
+                        lines[end + 1], quote_depth=quote_depth
+                    )
+                    if destination is None:
+                        break
+                    destination_valid, title_may_follow = _parse_reference_destination(
+                        destination
+                    )
+                    if not destination_valid:
+                        break
+                    definition_end = end + 1
+                if any(not item.isspace() for item in label):
+                    spans.append(
+                        ReferenceDefinitionSpan(
+                            start=index,
+                            end=definition_end,
+                            label=label,
+                            quote_depth=quote_depth,
+                            title_may_follow=title_may_follow,
+                        )
+                    )
+                    index = definition_end
+                break
+            if end + 1 >= len(lines) or not lines[end + 1].strip():
+                break
+            label_parts.append(label_line)
+            end += 1
+            continuation = _reference_continuation_body(
+                lines[end], quote_depth=quote_depth
+            )
+            if continuation is None:
+                break
+            label_line = continuation
+        index += 1
+    return spans
 
 
 def mask_hidden_html(text: str) -> str:
@@ -574,10 +754,19 @@ def extract_designated_metadata_lines(text: str) -> list[str]:
         if not closed:
             break
 
+        designated_fields = (
+            *MANIFEST_METADATA_FIELD_NAMES,
+            "AI Readiness",
+            "No new design decisions required",
+            "Validation commands",
+            "Blocking ambiguities",
+            "Approved by",
+            "Approval date",
+        )
         fields = {
-            match.group(1).strip().lower()
-            for line in block
-            if (match := re.match(r"^\s*([A-Za-z][A-Za-z ]+?)\s*[:：]", line))
+            field.casefold()
+            for field in designated_fields
+            if field_values(block, field)
         }
         is_manifest = not seen_level_two and MANIFEST_METADATA_FIELDS <= fields
         is_readiness = (
@@ -597,26 +786,44 @@ def extract_designated_metadata_lines(text: str) -> list[str]:
 def mask_inline_metadata(text: str) -> str:
     text = mask_hidden_html(text)
     text = NON_SEMANTIC_HTML_RE.sub("", text)
+    source_lines = text.splitlines()
+    reference_spans = {
+        span.start: span for span in reference_definition_spans(source_lines)
+    }
     lines: list[str] = []
     reference_title_may_follow = False
-    for line in text.splitlines():
-        if re.match(r"^\s{0,3}\[(?!\^)[^\]\r\n]+\]:", line):
-            lines.append("")
-            reference_title_may_follow = True
+    reference_title_quote_depth = 0
+    index = 0
+    while index < len(source_lines):
+        if index in reference_spans:
+            span = reference_spans[index]
+            lines.extend("" for _ in range(span.end - index + 1))
+            index = span.end + 1
+            reference_title_may_follow = span.title_may_follow
+            reference_title_quote_depth = span.quote_depth
             continue
-        if reference_title_may_follow and re.fullmatch(
-            r"\s{1,3}(?:\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|\((?:\\.|[^)])*\))\s*",
-            line,
+        line = source_lines[index]
+        title_body = _reference_continuation_body(
+            line, quote_depth=reference_title_quote_depth
+        )
+        if (
+            reference_title_may_follow
+            and title_body is not None
+            and REFERENCE_TITLE_RE.fullmatch(title_body.strip())
         ):
             lines.append("")
             reference_title_may_follow = False
+            reference_title_quote_depth = 0
+            index += 1
             continue
         reference_title_may_follow = False
+        reference_title_quote_depth = 0
         line = re.sub(r"(`+)(.*?)\1", "", line)
         line = re.sub(r"(?<=\])\((?:\\.|[^)\r\n])*\)", "", line)
         line = re.sub(r"<(?:https?://|mailto:)[^>\r\n]+>", "", line, flags=re.IGNORECASE)
         line = re.sub(r"</?[A-Za-z][^>\r\n]*>", "", line)
         lines.append(line)
+        index += 1
     return "\n".join(lines)
 
 
@@ -638,6 +845,32 @@ def visible_table_cell(value: str) -> str:
     text = re.sub(r"(`+)(.*?)\1", r"\2", text)
     visible = unescape(text).strip()
     return visible or (placeholder.group(0) if placeholder else "")
+
+
+def normalized_inline_text(value: str) -> str:
+    """Normalize rendered inline text for security-sensitive comparisons."""
+
+    value = re.sub(r"!\[([^\]\r\n]*)\]\((?:\\.|[^)\r\n])*\)", r"\1", value)
+    value = re.sub(r"!\[([^\]\r\n]*)\]\[[^\]\r\n]*\]", r"\1", value)
+    value = re.sub(r"!\[([^\]\r\n]+)\]", r"\1", value)
+    value = visible_table_cell(value)
+    value = re.sub(r"(?<![!\\])\[([^\[\]\r\n]+)\]", r"\1", value)
+    value = re.sub(r"(?<!\\)(?:\*\*|__|~~|[*_])", "", value)
+    value = re.sub(r"\\([\\`*{}\[\]()#+\-.!_>])", r"\1", value)
+    value = "".join(
+        " " if character.isspace() else character
+        for character in value
+        if character.isspace()
+        or unicodedata.category(character)[0] not in {"C", "M"}
+    )
+    value = normalize_validation_text(unescape(value))
+    value = "".join(
+        " " if character.isspace() else character
+        for character in value
+        if character.isspace()
+        or unicodedata.category(character)[0] not in {"C", "M"}
+    )
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def normalized_rule_text(value: str) -> str:
@@ -701,23 +934,62 @@ def has_heading(lines: list[str], pattern: str) -> bool:
     )
 
 
+def _section_lines_have_content(section_lines: list[str]) -> bool:
+    for offset, line in enumerate(section_lines):
+        stripped = line.strip()
+        if not stripped or re.match(r"^#{2,6}\s+", stripped):
+            continue
+        if re.fullmatch(r"[-*_]{3,}", stripped):
+            continue
+        if is_markdown_table_row(stripped):
+            cells = split_markdown_row(stripped)
+            if is_separator_row(cells):
+                continue
+            if offset + 1 < len(section_lines) and is_markdown_table_row(
+                section_lines[offset + 1]
+            ):
+                separators = split_markdown_row(section_lines[offset + 1])
+                if len(cells) == len(separators) and is_separator_row(separators):
+                    continue
+        value = visible_table_cell(stripped)
+        if value and not table_cell_has_placeholder(value):
+            return True
+    return False
+
+
 def has_level_two_section_content_before(
-    lines: list[str], pattern: str, boundary: int | None
+    lines: list[str],
+    pattern: str,
+    boundary: int | None,
+    *,
+    content_lines: list[str] | None = None,
 ) -> bool:
     """Require a populated level-two section before the final acceptance section."""
 
     scoped_lines = lines[:boundary] if boundary is not None else lines
-    for line in scoped_lines:
-        match = HEADING_RE.match(line)
-        if not match or not re.search(pattern, match.group(1), re.IGNORECASE):
+    scoped_content = content_lines if content_lines is not None else lines
+    if boundary is not None:
+        scoped_content = scoped_content[:boundary]
+    headings = [
+        (index, match.group(1))
+        for index, line in enumerate(scoped_lines)
+        if (match := HEADING_RE.match(line))
+    ]
+    for position, (start, raw_title) in enumerate(headings):
+        title = SECTION_NUMBER_RE.sub("", normalized_inline_text(raw_title)).strip()
+        if not re.search(pattern, title, re.IGNORECASE):
             continue
-        title = SECTION_NUMBER_RE.sub("", match.group(1)).strip()
         if NEGATED_HEADING_PREFIX_RE.match(title):
             continue
         # Only a real H2 may satisfy the M/L gate.  Nested H3/H4 headings can
         # describe a subsection, but cannot replace the required top-level
         # boundary chapter.
-        if has_section_content(scoped_lines, rf"^{re.escape(title)}$"):
+        end = (
+            headings[position + 1][0]
+            if position + 1 < len(headings)
+            else len(scoped_lines)
+        )
+        if _section_lines_have_content(scoped_content[start + 1 : end]):
             return True
     return False
 
@@ -732,7 +1004,7 @@ def has_section_content(
             headings.append((index, len(match.group(1)), match.group(2)))
 
     for position, (start, level, title) in enumerate(headings):
-        normalized_title = SECTION_NUMBER_RE.sub("", title).strip()
+        normalized_title = SECTION_NUMBER_RE.sub("", normalized_inline_text(title)).strip()
         if (
             required_level is not None
             and level != required_level
@@ -745,27 +1017,8 @@ def has_section_content(
             if next_level <= level:
                 end = next_start
                 break
-        section_lines = lines[start + 1 : end]
-        for offset, line in enumerate(section_lines):
-            stripped = line.strip()
-            if not stripped or re.match(r"^#{2,6}\s+", stripped):
-                continue
-            if re.fullmatch(r"[-*_]{3,}", stripped):
-                continue
-            if is_markdown_table_row(stripped):
-                cells = split_markdown_row(stripped)
-                if is_separator_row(cells):
-                    continue
-                # A Markdown table header is structure, not section content.
-                if offset + 1 < len(section_lines) and is_markdown_table_row(
-                    section_lines[offset + 1]
-                ):
-                    separators = split_markdown_row(section_lines[offset + 1])
-                    if len(cells) == len(separators) and is_separator_row(separators):
-                        continue
-            value = visible_table_cell(stripped)
-            if value and not table_cell_has_placeholder(value):
-                return True
+        if _section_lines_have_content(lines[start + 1 : end]):
+            return True
     return False
 
 
@@ -786,18 +1039,31 @@ def has_declaration(text: str, lines: list[str], pattern: str) -> bool:
 
 
 def field_values(lines: list[str], field: str) -> list[str]:
-    pattern = re.compile(
-        rf"^\s*(?:[-*+>]\s*)?{re.escape(field)}\s*[:：]\s*(.*?)\s*$",
-        re.IGNORECASE,
-    )
+    expected_key = normalized_inline_text(field).casefold()
     values: list[str] = []
-    for line in lines:
-        match = pattern.match(line)
-        if not match:
+    reference_spans = reference_definition_spans(lines)
+    reference_lines = {
+        index
+        for span in reference_spans
+        for index in range(span.start, span.end + 1)
+    }
+    for span in reference_spans:
+        if normalized_inline_text(span.label).casefold() == expected_key:
+            values.append("")
+
+    for line_index, line in enumerate(lines):
+        if line_index in reference_lines:
             continue
-        value = visible_table_cell(match.group(1))
-        if value:
-            values.append(value)
+        container = REFERENCE_CONTAINER_PREFIX_RE.match(line)
+        assert container is not None
+        raw_body = line[container.end() :].strip()
+        body = unescape(raw_body)
+        for separator in re.finditer(r"[:：]", body):
+            key = body[: separator.start()]
+            if normalized_inline_text(key).casefold() != expected_key:
+                continue
+            values.append(visible_table_cell(body[separator.end() :]))
+            break
     return values
 
 
@@ -805,7 +1071,8 @@ def has_concrete_field(
     lines: list[str], field: str, *, allow_sentinel: bool = True
 ) -> bool:
     return any(
-        not table_cell_has_placeholder(value, allow_sentinel=allow_sentinel)
+        bool(value)
+        and not table_cell_has_placeholder(value, allow_sentinel=allow_sentinel)
         for value in field_values(lines, field)
     )
 
@@ -1306,13 +1573,19 @@ def validate_tier(
         except ValueError:
             failures.append(f"Approval field Approval date is invalid: {value}")
 
-    acceptance_index, _ = find_acceptance_section(semantic_lines)
+    acceptance_index, _ = find_acceptance_section(visible_lines)
     if not has_level_two_section_content_before(
-        semantic_lines, r"interface|接口|contract|契约", acceptance_index
+        visible_lines,
+        r"interface|接口|contract|契约",
+        acceptance_index,
+        content_lines=semantic_lines,
     ):
         failures.append("M tier requires interfaces and boundaries")
     if not has_level_two_section_content_before(
-        semantic_lines, r"handoff|交接|恢复", acceptance_index
+        visible_lines,
+        r"handoff|交接|恢复",
+        acceptance_index,
+        content_lines=semantic_lines,
     ):
         failures.append("M tier requires Handoff and recovery")
 
@@ -1320,11 +1593,17 @@ def validate_tier(
         return
 
     if not has_level_two_section_content_before(
-        semantic_lines, r"Architecture Constitution|架构宪法", acceptance_index
+        visible_lines,
+        r"Architecture Constitution|架构宪法",
+        acceptance_index,
+        content_lines=semantic_lines,
     ):
         failures.append("L tier requires Architecture Constitution")
     if not has_level_two_section_content_before(
-        semantic_lines, r"Boundary Policy|边界策略", acceptance_index
+        visible_lines,
+        r"Boundary Policy|边界策略",
+        acceptance_index,
+        content_lines=semantic_lines,
     ):
         failures.append("L tier requires Boundary Policy")
     for field in ("Workflow Variant", "Spec Maintenance Mode", "Execution Mode"):
@@ -1336,8 +1615,17 @@ def validate_tier(
             "L tier requires complete Proposal -> Requirements -> Design -> Tasks -> Implementation -> Acceptance flow"
         )
 
-    acceptance_index, _ = find_acceptance_section(semantic_lines)
-    milestone_lines = semantic_lines[:acceptance_index] if acceptance_index is not None else semantic_lines
+    semantic_acceptance_index, _ = find_acceptance_section(semantic_lines)
+    milestone_lines = (
+        semantic_lines[:semantic_acceptance_index]
+        if semantic_acceptance_index is not None
+        else semantic_lines
+    )
+    visible_milestone_lines = (
+        visible_lines[:acceptance_index]
+        if acceptance_index is not None
+        else visible_lines
+    )
     milestones = find_milestones(milestone_lines)
     ordered_milestones = milestone_sections(milestone_lines)
     milestone_numbers = sorted(
@@ -1377,12 +1665,15 @@ def validate_tier(
         index = next(
             (
                 line_index
-                for line_index, line in enumerate(milestone_lines)
+                for line_index, line in enumerate(visible_milestone_lines)
                 if (match := HEADING_RE.match(line))
-                and not NEGATED_HEADING_PREFIX_RE.match(
-                    SECTION_NUMBER_RE.sub("", match.group(1)).strip()
+                and (
+                    title := SECTION_NUMBER_RE.sub(
+                        "", normalized_inline_text(match.group(1))
+                    ).strip()
                 )
-                and re.search(pattern, match.group(1), re.IGNORECASE)
+                and not NEGATED_HEADING_PREFIX_RE.match(title)
+                and re.search(pattern, title, re.IGNORECASE)
             ),
             None,
         )
@@ -1401,8 +1692,8 @@ def validate_tier(
         else visible_lines
     )
     semantic_pre_acceptance_lines = (
-        semantic_lines[:acceptance_index]
-        if acceptance_index is not None
+        semantic_lines[:semantic_acceptance_index]
+        if semantic_acceptance_index is not None
         else semantic_lines
     )
     reports_directory = any(

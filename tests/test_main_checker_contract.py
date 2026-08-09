@@ -294,6 +294,305 @@ Blocking ambiguities: none
         self.assertEqual(failures, [])
         self.assertTrue(any("Missing Document Tier" in warning for warning in warnings), warnings)
 
+    def test_document_tier_declaration_cannot_be_obfuscated_into_legacy_mode(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        base = valid_minimal_prd()
+        declarations = (
+            "Document Tier:",
+            "\ufeffDocument Tier: M",
+            "Document \u200bTier: M",
+            "Document T\u034fier: M",
+            "Document T\ufe0fier: M",
+            "Document T&#105;er: M",
+            "Document Tier&#58; M",
+            "Document **Tier**: M",
+            "<strong>Document Tier</strong>: M",
+            "[Document Tier](https://example.test/tier): M",
+            "`Document Tier`: M",
+        )
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                failures, warnings = check_document(f"{declaration}\n{base}")
+
+                self.assertTrue(failures, (declaration, failures, warnings))
+                self.assertFalse(
+                    any("Missing Document Tier" in warning for warning in warnings),
+                    (declaration, failures, warnings),
+                )
+
+    def test_fenced_manifest_tier_cannot_be_obfuscated_into_legacy_mode(self) -> None:
+        from scripts.check_prd_ac import check_document
+        from tests.test_check_prd_ac import build_document
+
+        document = build_document("M")
+        declarations = (
+            "Document T\u034fier: M",
+            "Document **Tier**: M",
+            "Document T&#105;er: M",
+            "Document Tier&#58; M",
+        )
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                failures, warnings = check_document(
+                    document.replace("Document Tier: M", declaration)
+                )
+
+                self.assertTrue(failures, (declaration, failures, warnings))
+                self.assertFalse(
+                    any("Missing Document Tier" in warning for warning in warnings),
+                    (declaration, failures, warnings),
+                )
+
+    def test_empty_required_metadata_values_are_not_concrete(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_m_tier_prd()
+        mutations = (
+            (
+                "Validation commands: python -m unittest",
+                "Validation commands:",
+                "M tier requires AI Readiness fields: Validation commands",
+            ),
+            (
+                "Approved by: product-owner",
+                "Approved by:",
+                "M tier requires Approval fields: Approved by",
+            ),
+        )
+        for old, new, expected in mutations:
+            with self.subTest(field=new):
+                failures, _ = check_document(document.replace(old, new))
+
+                self.assertIn(expected, failures)
+
+    def test_reference_definitions_cannot_supply_required_metadata(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_m_tier_prd()
+        mutations = (
+            ("Document Tier", "M", "M", "Invalid Document Tier"),
+            (
+                "AI Readiness",
+                "ready",
+                "ready",
+                "M tier requires AI Readiness fields: AI Readiness",
+            ),
+            (
+                "No new design decisions required",
+                "yes",
+                "yes",
+                "M tier requires AI Readiness fields: No new design decisions required",
+            ),
+            (
+                "Validation commands",
+                "python -m unittest",
+                "python",
+                "M tier requires AI Readiness fields: Validation commands",
+            ),
+            (
+                "Blocking ambiguities",
+                "none",
+                "none",
+                "M tier requires AI Readiness fields: Blocking ambiguities",
+            ),
+            (
+                "Spec status",
+                "approved",
+                "approved",
+                "M tier requires Approval fields: Spec status",
+            ),
+            (
+                "Approved by",
+                "product-owner",
+                "product-owner",
+                "M tier requires Approval fields: Approved by",
+            ),
+            (
+                "Approval date",
+                "2026-08-09",
+                "2026-08-09",
+                "M tier requires Approval fields: Approval date",
+            ),
+            (
+                "Implementation allowed",
+                "yes",
+                "yes",
+                "M tier requires Approval fields: Implementation allowed",
+            ),
+        )
+        for field, original, destination, expected in mutations:
+            with self.subTest(field=field):
+                hidden = document.replace(
+                    f"{field}: {original}",
+                    f"[{field}]: {destination}",
+                )
+                failures, warnings = check_document(hidden)
+
+                self.assertTrue(any(expected in failure for failure in failures), failures)
+                self.assertFalse(
+                    any("Missing Document Tier" in warning for warning in warnings),
+                    warnings,
+                )
+
+    def test_reference_like_visible_metadata_is_not_a_reference_definition(self) -> None:
+        from scripts.check_prd_ac import check_document, field_values
+
+        document = valid_m_tier_prd()
+        declarations = (
+            "[Document Tier] : M",
+            "[Document Tier]&#58; M",
+            "Document  Tier: M",
+            "Document\tTier: M",
+            "Document&#9;Tier: M",
+            "1. Document Tier: M",
+            "> - Document Tier: M",
+            "\ufeff[Document Tier]: M",
+            "\u200b[Document Tier]: M",
+            "\u2060[Document Tier]: M",
+            "\u034f[Document Tier]: M",
+        )
+        for declaration in declarations:
+            with self.subTest(declaration=ascii(declaration)):
+                visible = document.replace(
+                    "Document Tier: M",
+                    declaration,
+                )
+
+                self.assertEqual(field_values([declaration], "Document Tier"), ["M"])
+                failures, warnings = check_document(visible)
+
+                self.assertEqual(failures, [])
+                self.assertFalse(
+                    any("Missing Document Tier" in warning for warning in warnings),
+                    warnings,
+                )
+
+    def test_reference_definition_label_whitespace_is_render_normalized(self) -> None:
+        from scripts.check_prd_ac import check_document, field_values
+
+        document = valid_m_tier_prd()
+        for label in ("Document  Tier", "Document\tTier", "Document&#9;Tier"):
+            with self.subTest(label=ascii(label)):
+                declaration = f"[{label}]: M"
+
+                self.assertEqual(field_values([declaration], "Document Tier"), [""])
+                failures, warnings = check_document(
+                    document.replace("Document Tier: M", declaration)
+                )
+
+                self.assertTrue(
+                    any("Invalid Document Tier" in failure for failure in failures),
+                    failures,
+                )
+                self.assertFalse(
+                    any("Missing Document Tier" in warning for warning in warnings),
+                    warnings,
+                )
+
+    def test_backslash_cannot_escape_reference_destination_whitespace(self) -> None:
+        from scripts.check_prd_ac import check_document, field_values
+
+        declaration = r"[Document Tier]: M\ value"
+
+        self.assertEqual(
+            field_values([declaration], "Document Tier"),
+            [r"M\ value"],
+        )
+        failures, warnings = check_document(
+            valid_m_tier_prd().replace("Document Tier: M", declaration)
+        )
+
+        self.assertTrue(
+            any(r"Invalid Document Tier: M\ value" in failure for failure in failures),
+            failures,
+        )
+        self.assertFalse(
+            any("Missing Document Tier" in warning for warning in warnings),
+            warnings,
+        )
+
+    def test_reference_continuations_do_not_cross_into_deeper_blockquotes(self) -> None:
+        from scripts.check_prd_ac import check_document, mask_inline_metadata
+
+        visible_variants = (
+            ("> [ref]:\n>> /visible", "> [ref]:\n>> /visible"),
+            ('> [ref]: /hidden\n>> "visible title"', '\n>> "visible title"'),
+        )
+        for content, expected_mask in visible_variants:
+            with self.subTest(content=content):
+                self.assertEqual(mask_inline_metadata(content), expected_mask)
+                document = valid_m_tier_prd().replace(
+                    "## Interface and contract\n\nProducer to consumer.\n\n",
+                    f"## Interface and contract\n\n{content}\n\n",
+                )
+
+                failures, _ = check_document(document)
+
+                self.assertNotIn("M tier requires interfaces and boundaries", failures)
+
+        for hidden in (
+            "> [ref]:\n> /hidden",
+            '> [ref]: /hidden\n> "hidden title"',
+        ):
+            with self.subTest(hidden=hidden):
+                self.assertEqual(mask_inline_metadata(hidden), "\n")
+
+    def test_inline_reference_title_does_not_hide_following_visible_line(self) -> None:
+        from scripts.check_prd_ac import check_document, mask_inline_metadata
+
+        variants = (
+            ('[ref]: /hidden "inline title"\n"visible second"', '\n"visible second"'),
+            (
+                '[ref]:\n /hidden "inline title"\n"visible second"',
+                '\n\n"visible second"',
+            ),
+        )
+        for content, expected_mask in variants:
+            with self.subTest(content=content):
+                self.assertEqual(mask_inline_metadata(content), expected_mask)
+                document = valid_m_tier_prd().replace(
+                    "## Interface and contract\n\nProducer to consumer.\n\n",
+                    f"## Interface and contract\n\n{content}\n\n",
+                )
+
+                failures, _ = check_document(document)
+
+                self.assertNotIn("M tier requires interfaces and boundaries", failures)
+
+    def test_multiline_reference_definition_cannot_supply_document_tier(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_m_tier_prd().replace(
+            "Document Tier: M",
+            "[Document\n Tier]: M",
+        )
+
+        failures, warnings = check_document(document)
+
+        self.assertTrue(
+            any("Invalid Document Tier" in failure for failure in failures),
+            failures,
+        )
+        self.assertFalse(
+            any("Missing Document Tier" in warning for warning in warnings),
+            warnings,
+        )
+
+    def test_unterminated_multiline_reference_scan_remains_linear(self) -> None:
+        from time import perf_counter
+
+        from scripts.check_prd_ac import reference_definition_spans
+
+        lines = ["[unterminated", *(["continuation"] * 5000)]
+
+        started = perf_counter()
+        spans = reference_definition_spans(lines)
+        elapsed = perf_counter() - started
+
+        self.assertEqual(spans, [])
+        self.assertLess(elapsed, 1.5, f"reference scan took {elapsed:.3f}s")
+
     def test_html_comments_cannot_satisfy_required_fields_or_tables(self) -> None:
         from scripts.check_prd_ac import check_document
 
@@ -596,6 +895,37 @@ Blocking ambiguities: none
         )
         self.assertIn("Missing goal section", ignored_close_failures)
 
+    def test_multiline_raw_html_opener_cannot_supply_acceptance_authority(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_minimal_prd().replace(
+            "## Acceptance Criteria",
+            "<script\n type=text/plain>\n## Acceptance Criteria",
+        )
+        failures, _ = check_document(document + "\n</script>")
+
+        self.assertIn("Missing final Acceptance Criteria section", failures)
+
+    def test_incomplete_raw_tag_after_visible_text_remains_literal(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        document = valid_minimal_prd().replace(
+            "Store one validated item.",
+            "Store one validated item. This sentence discusses <script as a literal token.",
+        )
+        failures, _ = check_document(document)
+
+        self.assertEqual(failures, [])
+
+    def test_invalid_incomplete_raw_tag_prefix_remains_visible_text(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        for literal in ("<script/", "<script=", "<script!"):
+            with self.subTest(literal=literal):
+                failures, _ = check_document(f"{literal}\n{valid_minimal_prd()}")
+
+                self.assertEqual(failures, [])
+
     def test_unterminated_raw_html_after_visible_prefix_cannot_satisfy_structure(self) -> None:
         from scripts.check_prd_ac import check_document
 
@@ -729,6 +1059,81 @@ Blocking ambiguities: none
                 mutated = m_document.replace(heading, "## No " + heading[3:].lower())
                 failures, _ = check_document(mutated)
                 self.assertIn(expected, failures)
+
+    def test_render_equivalent_negated_heading_does_not_satisfy_l_gate(self) -> None:
+        from scripts.check_prd_ac import check_document
+        from tests.test_check_prd_ac import build_document, with_l_requirements
+
+        document = with_l_requirements(build_document("L"))
+        variants = (
+            "## N&#111; Architecture Constitution",
+            "## N\u200bo Architecture Constitution",
+            "## N\u034fo Architecture Constitution",
+            "## N\ufe0fo Architecture Constitution",
+            "## \uff2e\uff4f Architecture Constitution",
+            "## N**o** Architecture Constitution",
+            "## [No](https://example.test/no) Architecture Constitution",
+            "## [No] Architecture Constitution\n\n[No]: https://example.test/no",
+            "## ![No](https://example.test/no.png) Architecture Constitution",
+            "## ![No] Architecture Constitution\n\n[No]: https://example.test/no.png",
+            "## `No` Architecture Constitution",
+        )
+        for heading in variants:
+            with self.subTest(heading=heading):
+                failures, _ = check_document(
+                    document.replace("## Architecture Constitution", heading)
+                )
+
+                self.assertIn("L tier requires Architecture Constitution", failures)
+
+    def test_reference_definition_does_not_populate_required_m_section(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        variants = (
+            "[only-ref]: https://example.test/invisible",
+            "[only-ref]: https://example.test/" + "x" * 1200,
+            "[" + "a" * 1200 + "]: https://example.test/invisible",
+            "[only\n ref]: https://example.test/invisible",
+            "[only-ref]:\n https://example.test/invisible",
+            '[only-ref]: https://example.test/invisible\n"title"',
+            '[only-ref]: https://example.test/invisible\n    "title"',
+            "> [only-ref]: https://example.test/invisible",
+            '> [only-ref]: https://example.test/invisible\n> "title"',
+            "- [only-ref]: https://example.test/invisible",
+            '- [only-ref]: https://example.test/invisible\n  "title"',
+        )
+        for content in variants:
+            with self.subTest(content=content):
+                document = valid_m_tier_prd().replace(
+                    "## Interface and contract\n\nProducer to consumer.\n\n",
+                    f"## Interface and contract\n\n{content}\n\n",
+                )
+                failures, _ = check_document(document)
+
+                self.assertIn("M tier requires interfaces and boundaries", failures)
+
+    def test_incomplete_visible_reference_syntax_counts_as_section_content(self) -> None:
+        from scripts.check_prd_ac import check_document
+
+        for content in (
+            "[visible-label]:",
+            '[visible-label]: "some title"',
+            "[visible-label]: (some title)",
+            r"[visible-label]: M\ value",
+            "[visible-label]:\n- visible-item",
+            "[visible-label]:\n> visible-quote",
+            "[visible-label]:\n1. visible-item",
+            '[hidden-label]: https://example.test/hidden\n- "visible item"',
+        ):
+            with self.subTest(content=content):
+                document = valid_m_tier_prd().replace(
+                    "## Interface and contract\n\nProducer to consumer.\n\n",
+                    f"## Interface and contract\n\n{content}\n\n",
+                )
+
+                failures, _ = check_document(document)
+
+                self.assertNotIn("M tier requires interfaces and boundaries", failures)
 
     def test_l_tier_requires_ordered_workflow_declaration(self) -> None:
         from scripts.check_prd_ac import check_document
