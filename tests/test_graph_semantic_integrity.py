@@ -50,6 +50,54 @@ def unresolved_dynamic_edge(document: dict) -> dict:
 
 
 class GraphSemanticIntegrityTests(unittest.TestCase):
+    def test_git_shas_require_full_lowercase_object_ids(self) -> None:
+        invalid_values = (
+            "a" * 7,
+            "a" * 39,
+            "a" * 41,
+            "a" * 63,
+            "a" * 65,
+            "A" * 40,
+            "a" * 39 + "A",
+        )
+        locations = (
+            ("repository.git_sha", lambda d, value: d["repository"].__setitem__("git_sha", value)),
+            ("nodes[0] git_sha", lambda d, value: d["nodes"][0].__setitem__("git_sha", value)),
+            ("edges[0] git_sha", lambda d, value: d["edges"][0].__setitem__("git_sha", value)),
+        )
+        for label, mutate in locations:
+            for value in invalid_values:
+                with self.subTest(field=label, value=value):
+                    document = valid_snapshot()
+                    mutate(document, value)
+                    errors = validate_document(document)
+                    self.assertTrue(
+                        any(label in error and "invalid" in error for error in errors),
+                        errors,
+                    )
+
+        for field in ("baseline_sha", "current_sha"):
+            for value in invalid_values:
+                with self.subTest(field=field, value=value):
+                    document = change_snapshot()
+                    document[field] = value
+                    errors = validate_document(document)
+                    self.assertTrue(
+                        any(field in error and "invalid" in error for error in errors),
+                        errors,
+                    )
+
+        for length in (40, 64):
+            with self.subTest(valid_length=length):
+                document = change_snapshot()
+                current_sha = "c" * length
+                document["baseline_sha"] = "b" * length
+                document["current_sha"] = current_sha
+                document["repository"]["git_sha"] = current_sha
+                for item in document["nodes"] + document["edges"]:
+                    item["git_sha"] = current_sha
+                self.assertEqual(validate_document(document), [])
+
     def test_identifiers_and_references_reject_boundary_whitespace(self) -> None:
         identifier_mutations = (
             ("source section", lambda d: d["source_coverage"][0].__setitem__("source_section_id", " DESIGN-01 ")),
@@ -126,6 +174,10 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
         self.assertIn("check_graph_evidence.py", schema.get("$comment", ""))
+        self.assertEqual(
+            schema["$defs"]["gitSha"].get("pattern"),
+            "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+        )
         self.assertEqual(schema["properties"]["coverage"]["properties"]["paths"].get("minItems"), 1)
         self.assertNotIn("removed", schema["$defs"]["status"]["enum"])
         self.assertIn("unresolved_reason", schema["$defs"]["testChain"]["properties"])
