@@ -182,10 +182,12 @@ reader; `writer_milestone` / `reader_milestone` cannot substitute for completed
 closure. A Test Chain with multiple contract roles must close producer and
 consumer roles separately for each declared contract.
 
-Use canonical identifiers with no leading or trailing whitespace. A node, edge,
-or contract whose status is `observed`, `changed`, `implemented`, or `verified`
-requires non-empty `verification_evidence`. Every source-coverage edge reference
-must include both endpoints in `target_node_refs`.
+Use canonical identifiers with no leading or trailing whitespace. All downstream
+`requirement_refs` and Test Chain `ac_refs` must be declared by
+`source_coverage`. A node, edge, or contract whose status is `observed`,
+`changed`, `implemented`, or `verified` requires non-empty
+`verification_evidence`. Every source-coverage edge reference must include both
+endpoints in `target_node_refs`.
 
 ### Source Coverage
 

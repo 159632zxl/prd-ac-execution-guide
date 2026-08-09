@@ -812,6 +812,11 @@ def _validate_source_coverage_links(
     edges: list[dict[str, Any]],
     errors: list[str],
 ) -> None:
+    sections = [
+        section
+        for section in _safe_list(document.get("source_coverage"))
+        if isinstance(section, dict)
+    ]
     node_by_id = {
         node["node_id"]: node
         for node in nodes
@@ -828,9 +833,32 @@ def _validate_source_coverage_links(
         if isinstance(chain, dict)
     ]
 
-    for index, section in enumerate(_safe_list(document.get("source_coverage"))):
-        if not isinstance(section, dict):
-            continue
+    declared_requirements = {
+        ref
+        for section in sections
+        for ref in _string_items(section.get("requirement_refs"))
+    }
+    declared_ac_refs = {
+        ref
+        for section in sections
+        for ref in _string_items(section.get("ac_refs"))
+    }
+    for collection_label, items in (("nodes", nodes), ("edges", edges), ("test_chains", chains)):
+        for index, item in enumerate(items):
+            for ref in _string_items(item.get("requirement_refs")):
+                if ref not in declared_requirements:
+                    errors.append(
+                        f"{collection_label}[{index}].requirement_refs references requirement "
+                        f"not declared by source_coverage: {ref}"
+                    )
+    for index, chain in enumerate(chains):
+        for ref in _string_items(chain.get("ac_refs")):
+            if ref not in declared_ac_refs:
+                errors.append(
+                    f"test_chains[{index}].ac_refs references AC not declared by source_coverage: {ref}"
+                )
+
+    for index, section in enumerate(sections):
         label = f"source_coverage[{index}]"
         target_node_refs = set(_string_items(section.get("target_node_refs")))
         target_edge_refs = set(_string_items(section.get("target_edge_refs")))

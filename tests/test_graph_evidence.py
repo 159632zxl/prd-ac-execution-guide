@@ -633,16 +633,19 @@ class GraphEvidenceTests(unittest.TestCase):
 
     def test_complete_coverage_inventory_allows_owned_deferred_section(self) -> None:
         document = valid_snapshot()
-        section = document["source_coverage"][0]
-        section.update(
-            status="deferred",
-            requirement_refs=[],
-            ears_refs=[],
-            target_node_refs=[],
-            target_edge_refs=[],
-            ac_refs=[],
-            explicit_reason="runtime adapter analysis is scheduled for the next task",
-            owner_task="M2-T01",
+        document["source_coverage"].append(
+            {
+                "source_section_id": "DESIGN-02",
+                "status": "deferred",
+                "requirement_refs": [],
+                "ears_refs": [],
+                "target_node_refs": [],
+                "target_edge_refs": [],
+                "ac_refs": [],
+                "explicit_reason": "runtime adapter analysis is scheduled for the next task",
+                "owner_task": "M2-T01",
+                "source_anchor": None,
+            }
         )
 
         self.assertEqual(document["coverage"]["status"], "complete")

@@ -109,6 +109,8 @@ class AuditLessonsWorkflowTests(unittest.TestCase):
             for phrase in (
                 "canonical identifiers",
                 "leading or trailing whitespace",
+                "downstream `requirement_refs` and Test Chain `ac_refs`",
+                "declared by `source_coverage`",
                 "observed`, `changed`, `implemented`, or `verified",
                 "non-empty `verification_evidence`",
                 "both endpoints in `target_node_refs`",

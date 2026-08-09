@@ -927,6 +927,39 @@ class GraphSemanticIntegrityTests(unittest.TestCase):
         unrelated_ac_errors = validate_document(unrelated_ac)
         self.assertTrue(any("source_coverage[0] ac_refs" in error and "linked" in error for error in unrelated_ac_errors), unrelated_ac_errors)
 
+    def test_graph_requirement_and_ac_refs_must_be_declared_by_source_coverage(self) -> None:
+        mutations = (
+            (
+                "node requirement",
+                lambda document: document["nodes"][0]["requirement_refs"].append("REQ-FAKE"),
+                "nodes[0].requirement_refs references requirement not declared by source_coverage: REQ-FAKE",
+            ),
+            (
+                "edge requirement",
+                lambda document: document["edges"][0]["requirement_refs"].append("REQ-FAKE"),
+                "edges[0].requirement_refs references requirement not declared by source_coverage: REQ-FAKE",
+            ),
+            (
+                "test-chain requirement",
+                lambda document: document["test_chains"][0]["requirement_refs"].append("REQ-FAKE"),
+                "test_chains[0].requirement_refs references requirement not declared by source_coverage: REQ-FAKE",
+            ),
+            (
+                "test-chain AC",
+                lambda document: document["test_chains"][0]["ac_refs"].append("M9-DONE-FAKE"),
+                "test_chains[0].ac_refs references AC not declared by source_coverage: M9-DONE-FAKE",
+            ),
+        )
+
+        for label, mutate, expected in mutations:
+            with self.subTest(label=label):
+                document = valid_snapshot("target")
+                mutate(document)
+
+                errors = validate_document(document)
+
+                self.assertIn(expected, errors)
+
     def test_source_coverage_edge_refs_include_both_endpoint_nodes(self) -> None:
         document = valid_snapshot()
         section = document["source_coverage"][0]
